@@ -233,6 +233,8 @@ struct CardDAVSettingsView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 SecureField(contacts.hasPassword ? "Passwort (unverändert)" : "Passwort oder App-Passwort", text: $password)
+                TrustedCertificateRow(fingerprint: Binding(get: { contacts.settings.trustedCertificate },
+                                                           set: { contacts.setTrustedCertificate($0) }))
             } header: {
                 Text("Server")
             } footer: {
@@ -242,7 +244,8 @@ struct CardDAVSettingsView: View {
                 Button {
                     Task {
                         contacts.save(.init(url: url.trimmingCharacters(in: .whitespaces),
-                                            username: username.trimmingCharacters(in: .whitespaces)),
+                                            username: username.trimmingCharacters(in: .whitespaces),
+                                            trustedCertificate: contacts.settings.trustedCertificate),
                                       password: password.isEmpty ? nil : password)
                         password = ""
                         await contacts.sync(keys: keys)
@@ -279,6 +282,9 @@ struct CardDAVSettingsView: View {
                     Button("Verbindung entfernen", role: .destructive) { confirmRemove = true }
                 }
             }
+        }
+        .certificateTrustAlert(Binding(get: { contacts.untrusted }, set: { contacts.untrusted = $0 })) { info in
+            Task { await contacts.trust(info, keys: keys) }
         }
         .navigationTitle("Schlüssel aus Kontakten")
         .navigationBarTitleDisplayMode(.inline)

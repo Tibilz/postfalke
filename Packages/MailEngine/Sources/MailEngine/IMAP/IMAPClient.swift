@@ -26,7 +26,8 @@ public actor IMAPClient {
 
     public func connect() async throws {
         disconnect()
-        let conn = StreamConnection(host: config.host, port: config.port, security: config.security)
+        let conn = StreamConnection(host: config.host, port: config.port, security: config.security,
+                                    trustedCertificate: config.trustedCertificate)
         connection = conn
         do {
             let greeting = try await readResponse(conn)

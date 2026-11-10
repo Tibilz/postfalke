@@ -5,10 +5,12 @@ public final class CardDAVClient: NSObject, URLSessionTaskDelegate, @unchecked S
     private let baseURL: URL
     private let authorization: String
     private var session: URLSession!
+    private let trust: TrustDelegate
 
-    public init(baseURL: URL, username: String, password: String) {
+    public init(baseURL: URL, username: String, password: String, trustedCertificate: String? = nil) {
         self.baseURL = baseURL
         authorization = "Basic " + Data("\(username):\(password)".utf8).base64EncodedString()
+        trust = TrustDelegate(pinned: trustedCertificate)
         super.init()
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 30
@@ -104,7 +106,7 @@ public final class CardDAVClient: NSObject, URLSessionTaskDelegate, @unchecked S
         do {
             (data, response) = try await session.data(for: request)
         } catch {
-            throw MailError.connection(error.localizedDescription)
+            throw trust.rejected.map(MailError.untrustedCertificate) ?? MailError.connection(error.localizedDescription)
         }
         guard let http = response as? HTTPURLResponse else { throw MailError.protocolError("Keine HTTP-Antwort.") }
         switch http.statusCode {
@@ -119,6 +121,11 @@ public final class CardDAVClient: NSObject, URLSessionTaskDelegate, @unchecked S
                   let resolved = URL(string: href, relativeTo: finalURL)?.absoluteURL else { return nil }
             return DAVResponse(url: resolved, node: node)
         }
+    }
+
+    public func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                           completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        trust.handle(challenge, completionHandler)
     }
 
     /// URLSession turns redirected requests into GET; WebDAV needs method, body and login kept.

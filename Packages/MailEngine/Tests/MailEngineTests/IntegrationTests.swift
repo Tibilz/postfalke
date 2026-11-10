@@ -5,7 +5,7 @@ import XCTest
 /// MAIL_TEST_IMAP_PORT / MAIL_TEST_SMTP_PORT are set (see README).
 final class IntegrationTests: XCTestCase {
     let user = "tester@example.org"
-    let password = "p\"äss wort"
+    let password = ProcessInfo.processInfo.environment["MAIL_TEST_PASSWORD"] ?? "p\"äss wort"
 
     func ports() throws -> (imap: Int, smtp: Int) {
         let env = ProcessInfo.processInfo.environment

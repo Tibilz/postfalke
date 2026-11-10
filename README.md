@@ -15,6 +15,7 @@ The app's user interface is in German.
 - Keys from contacts: reads the `KEY` field of vCards on a CardDAV server (e.g. Nextcloud) and assigns the key to every address on the card
 - Private key import from Bitwarden: via clipboard (secure note) or "Share › Postfalke" (`.asc`/`.gpg` attachment)
 - Background check for new mail with notifications (iOS decides when it runs)
+- Self-signed certificates (e.g. a home Nextcloud): the app shows the SHA-256 fingerprint and, once confirmed, trusts exactly that certificate for IMAP, SMTP or CardDAV
 - Passwords, private keys and passphrases are stored in the iOS keychain (this device only)
 
 ## Layout
@@ -59,6 +60,21 @@ TEST_RUNNER_MAIL_TEST_SERVER=1 TEST_RUNNER_MAIL_TEST_DAV=1 xcodebuild -project P
 ```
 
 The passwords above belong to the local test server only.
+
+Self-signed certificates are tested against the same server running with TLS:
+
+```sh
+openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 30 -subj "/CN=nextcloud.local"
+FP=$(openssl x509 -in cert.pem -noout -fingerprint -sha256 | cut -d= -f2)
+FAKEMAIL_TLS_CERT=cert.pem FAKEMAIL_TLS_KEY=key.pem python3 Tools/fakemail.py 21993 21465 geheim123 21443 &
+(cd Packages/MailEngine && MAIL_TEST_PASSWORD=geheim123 MAIL_TEST_TLS_IMAP_PORT=21993 MAIL_TEST_TLS_SMTP_PORT=21465 \
+  MAIL_TEST_TLS_DAV_PORT=21443 MAIL_TEST_TLS_FINGERPRINT=$FP swift test --filter TLSTests)
+TEST_RUNNER_MAIL_TEST_SERVER=1 TEST_RUNNER_MAIL_TEST_TLS=1 TEST_RUNNER_MAIL_TEST_PLAIN=0 xcodebuild -project Postfalke.xcodeproj \
+  -scheme Postfalke -destination 'platform=iOS Simulator,name=iPhone 17' test -only-testing:PostfalkeUITests/EndToEndTests/testSelfSignedCertificates
+```
+
+To check the fingerprint of your own server, run `openssl x509 -in <your cert> -noout -fingerprint -sha256` on the server
+or look at the certificate in a browser.
 
 ## Known limitations
 

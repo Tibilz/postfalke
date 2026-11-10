@@ -51,7 +51,8 @@ public actor SMTPClient {
 
     /// Connects, negotiates TLS and authenticates.
     private func open() async throws -> StreamConnection {
-        let conn = StreamConnection(host: config.host, port: config.port, security: config.security)
+        let conn = StreamConnection(host: config.host, port: config.port, security: config.security,
+                                    trustedCertificate: config.trustedCertificate)
         do {
             let greeting = try await readReply(conn)
             guard greeting.code == 220 else { throw MailError.server("\(greeting.code) \(greeting.text)") }

@@ -12,8 +12,61 @@ final class EndToEndTests: XCTestCase {
             throw XCTSkip("local test server not running")
         }
         continueAfterFailure = false
-        app.launchArguments = ["-resetState", "-testServer", "21143,21025", "-AppleLanguages", "(de)"]
+    }
+
+    private func launch(server: String) {
+        app.launchArguments = ["-resetState", "-testServer", server, "-AppleLanguages", "(de)"]
         app.launch()
+    }
+
+    /// Welcome screen → account form with name, address and password filled in.
+    private func fillAccountForm() {
+        XCTAssertTrue(app.staticTexts["Willkommen bei Postfalke"].waitForExistence(timeout: 10))
+        app.buttons["E-Mail-Konto einrichten"].tap()
+        type("Tina Tester", into: app.textFields["Dein Name"])
+        type("tester@example.org", into: app.textFields["E-Mail-Adresse"])
+        type("geheim123", into: app.secureTextFields["Passwort"])
+    }
+
+    /// Server with a self-signed certificate (Tools/fakemail.py with FAKEMAIL_TLS_CERT,
+    /// IMAP 21993, SMTP 21465, CardDAV 21443). Needs MAIL_TEST_TLS=1.
+    func testSelfSignedCertificates() throws {
+        guard ProcessInfo.processInfo.environment["MAIL_TEST_TLS"] == "1" else { throw XCTSkip("no TLS test server") }
+        launch(server: "21993,21465,tls")
+        fillAccountForm()
+        app.buttons["Sichern"].tap()
+
+        // IMAP and SMTP each ask once; afterwards the account is saved.
+        let alert = app.alerts["Zertifikat nicht vertrauenswürdig"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 20))
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS '127.0.0.1:21993'")).firstMatch.exists)
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS 'nextcloud.local'")).firstMatch.exists)
+        shot("tls-01-imap")
+        alert.buttons["Diesem Zertifikat vertrauen"].tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 20))
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS '127.0.0.1:21465'")).firstMatch.exists)
+        alert.buttons["Diesem Zertifikat vertrauen"].tap()
+
+        XCTAssertTrue(app.staticTexts["Testnachricht 3 (mit Klammer)"].waitForExistence(timeout: 20))
+        dismissPasswordPrompt()
+        shot("tls-02-posteingang")
+
+        // CardDAV on the same server
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["Einstellungen"].tap()
+        app.staticTexts["Schlüssel aus Kontakten"].tap()
+        type("https://127.0.0.1:21443/dav/", into: app.textFields["https://cloud.example.org/remote.php/dav"])
+        type("tester@example.org", into: app.textFields["Benutzername"])
+        type("geheim123", into: app.secureTextFields.firstMatch)
+        app.buttons["Sichern und synchronisieren"].tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 20))
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS '127.0.0.1:21443'")).firstMatch.exists)
+        shot("tls-03-carddav-frage")
+        alert.buttons["Diesem Zertifikat vertrauen"].tap()
+        let result = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Kontakte gelesen'")).firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Eigenes Zertifikat vertraut"].exists)
+        shot("tls-04-carddav-ok")
     }
 
     override func tearDown() {
@@ -79,17 +132,12 @@ final class EndToEndTests: XCTestCase {
     }
 
     func testAccountKeyAndEncryptedMail() throws {
+        guard ProcessInfo.processInfo.environment["MAIL_TEST_PLAIN"] != "0" else { throw XCTSkip("plain server not requested") }
         // 1. Account setup
+        launch(server: "21143,21025")
         XCTAssertTrue(app.staticTexts["Willkommen bei Postfalke"].waitForExistence(timeout: 10))
         shot("01-willkommen")
-        app.buttons["E-Mail-Konto einrichten"].tap()
-
-        let name = app.textFields["Dein Name"]
-        type("Tina Tester", into: name)
-        let email = app.textFields["E-Mail-Adresse"]
-        type("tester@example.org", into: email)
-        let password = app.secureTextFields["Passwort"]
-        type("geheim123", into: password)
+        fillAccountForm()
 
         shot("02-konto")
         app.buttons["Sichern"].tap()

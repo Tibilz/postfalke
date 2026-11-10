@@ -45,6 +45,8 @@
 	</array>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Postfalke verbindet sich mit Mail- und Kontaktservern in deinem lokalen Netzwerk, z. B. einer Nextcloud zu Hause.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

@@ -1,5 +1,17 @@
 """Tiny in-memory IMAP + SMTP server for exercising the Swift client (plain TCP)."""
-import re, socketserver, sys, threading, base64
+import re, socketserver, sys, threading, base64, os, ssl
+
+# Optional TLS (implicit, on every port): FAKEMAIL_TLS_CERT=cert.pem FAKEMAIL_TLS_KEY=key.pem
+TLS = None
+if os.environ.get("FAKEMAIL_TLS_CERT"):
+    TLS = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    TLS.load_cert_chain(os.environ["FAKEMAIL_TLS_CERT"], os.environ["FAKEMAIL_TLS_KEY"])
+
+class TLSMixin:
+    def setup(self):
+        if TLS:
+            self.request = TLS.wrap_socket(self.request, server_side=True)
+        super().setup()
 
 # usage: fakemail.py IMAP_PORT SMTP_PORT [PASSWORD] [CARDDAV_PORT]
 USER = "tester@example.org"
@@ -27,7 +39,7 @@ def tokens(line, literals):
         else: out.append(m.group(3) or m.group(4))
     return out
 
-class IMAP(socketserver.StreamRequestHandler):
+class IMAP(TLSMixin, socketserver.StreamRequestHandler):
     def send(self, s):
         self.wfile.write(s if isinstance(s, bytes) else s.encode()); self.wfile.flush()
     def handle(self):
@@ -107,7 +119,7 @@ class IMAP(socketserver.StreamRequestHandler):
             else:
                 self.send(f"{tag} BAD unknown command {cmd}\r\n")
 
-class SMTP(socketserver.StreamRequestHandler):
+class SMTP(TLSMixin, socketserver.StreamRequestHandler):
     def handle(self):
         w = lambda s: (self.wfile.write(s.encode()), self.wfile.flush())
         w("220 fake ESMTP\r\n"); authed = False; rcpts = []
@@ -140,7 +152,7 @@ MULTI = '<?xml version="1.0"?><d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf
 def resp(href, props):
     return f"<d:response><d:href>{href}</d:href><d:propstat><d:prop>{props}</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"
 
-class DAV(http.server.BaseHTTPRequestHandler):
+class DAV(TLSMixin, http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def reply(self, code, body=b"", ctype="application/xml; charset=utf-8", extra=()):
         if isinstance(body, str): body = body.encode()

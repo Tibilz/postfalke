@@ -10,12 +10,14 @@ final class StreamConnection: @unchecked Sendable {
     private let task: URLSessionStreamTask
     private var buffer = Data()
     private let timeout: TimeInterval
+    private let trust: TrustDelegate
 
-    init(host: String, port: Int, security: ConnectionSecurity, timeout: TimeInterval = 40) {
+    init(host: String, port: Int, security: ConnectionSecurity, trustedCertificate: String? = nil, timeout: TimeInterval = 40) {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = timeout
         config.waitsForConnectivity = false
-        session = URLSession(configuration: config)
+        trust = TrustDelegate(pinned: trustedCertificate)
+        session = URLSession(configuration: config, delegate: trust, delegateQueue: nil)
         task = session.streamTask(withHostName: host, port: port)
         self.timeout = timeout
         if security == .tls {
@@ -46,7 +48,7 @@ final class StreamConnection: @unchecked Sendable {
         do {
             try await task.write(data, timeout: timeout)
         } catch {
-            throw MailError.connection(error.localizedDescription)
+            throw failure(error)
         }
     }
 
@@ -63,10 +65,15 @@ final class StreamConnection: @unchecked Sendable {
                 throw MailError.connection("Der Server hat die Verbindung geschlossen.")
             }
         } catch let error as MailError {
-            throw error
+            throw trust.rejected.map(MailError.untrustedCertificate) ?? error
         } catch {
-            throw MailError.connection(error.localizedDescription)
+            throw failure(error)
         }
+    }
+
+    /// A rejected certificate explains the failure better than the generic TLS error.
+    private func failure(_ error: Error) -> MailError {
+        trust.rejected.map(MailError.untrustedCertificate) ?? .connection(error.localizedDescription)
     }
 
     /// Reads one line including its terminating LF.

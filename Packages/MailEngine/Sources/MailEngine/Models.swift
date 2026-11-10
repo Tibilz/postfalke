@@ -11,12 +11,15 @@ public struct ServerConfig: Codable, Hashable, Sendable {
     public var port: Int
     public var security: ConnectionSecurity
     public var username: String
+    /// SHA-256 fingerprint of a certificate the user chose to trust although the system does not.
+    public var trustedCertificate: String?
 
-    public init(host: String, port: Int, security: ConnectionSecurity, username: String) {
+    public init(host: String, port: Int, security: ConnectionSecurity, username: String, trustedCertificate: String? = nil) {
         self.host = host
         self.port = port
         self.security = security
         self.username = username
+        self.trustedCertificate = trustedCertificate
     }
 }
 
@@ -128,6 +131,7 @@ public enum MailError: LocalizedError, Sendable {
     case authentication(String)
     case protocolError(String)
     case pgp(String)
+    case untrustedCertificate(CertificateInfo)
 
     public var errorDescription: String? {
         switch self {
@@ -136,6 +140,8 @@ public enum MailError: LocalizedError, Sendable {
         case .authentication(let m): return "Anmeldung fehlgeschlagen: \(m)"
         case .protocolError(let m): return "Protokollfehler: \(m)"
         case .pgp(let m): return "OpenPGP: \(m)"
+        case .untrustedCertificate(let c):
+            return "Das Zertifikat von \(c.host) ist nicht vertrauenswürdig (\(c.reason))."
         }
     }
 }

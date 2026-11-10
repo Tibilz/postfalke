@@ -23,6 +23,7 @@
 		A79D7B63FE08529A381F727A /* ComposeDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BB48FED0E19E21400787BC2 /* ComposeDraft.swift */; };
 		B348B2870F155282C7B53695 /* ContactKeySync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306A00D03A5A65B2E73B107A /* ContactKeySync.swift */; };
 		B878BCBB81587609139C9F29 /* MailEngine in Frameworks */ = {isa = PBXBuildFile; productRef = BDEE2440B742260BDEC4E7A2 /* MailEngine */; };
+		BDBF89B80F39D72F3CC7BE31 /* CertificateTrustAlert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 572C22C21113998FA609B04F /* CertificateTrustAlert.swift */; };
 		C2AB8718D2ECA483BC0102A9 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C92B1246E0A0BDC54D780F4 /* SettingsView.swift */; };
 		C8A34156AD929C44E35AC6EF /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7664358D9DC82E957A7BCD06 /* Account.swift */; };
 		D00B04299F4B322C5C84A2D1 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1DBCF812D3FF4EE234E556A /* RootView.swift */; };
@@ -48,11 +49,12 @@
 		306A00D03A5A65B2E73B107A /* ContactKeySync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactKeySync.swift; sourceTree = "<group>"; };
 		34B525501082170946954159 /* HTMLView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLView.swift; sourceTree = "<group>"; };
 		4CFA3277636C38912180F9A4 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
+		572C22C21113998FA609B04F /* CertificateTrustAlert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CertificateTrustAlert.swift; sourceTree = "<group>"; };
 		677848D37F75FA16628619C0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6D9F6EEE104E94DB1DBEBBF3 /* ComposeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeView.swift; sourceTree = "<group>"; };
 		7521AA35137F400CF85986CE /* AccountStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountStore.swift; sourceTree = "<group>"; };
 		7664358D9DC82E957A7BCD06 /* Account.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Account.swift; sourceTree = "<group>"; };
-		91D79427B57A6D7806E99C13 /* Postfalke.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Postfalke.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		91D79427B57A6D7806E99C13 /* Postfalke.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Postfalke.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9AD76F618CF16F98A5C10F67 /* EndToEndTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndToEndTests.swift; sourceTree = "<group>"; };
 		9C92B1246E0A0BDC54D780F4 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A0C64A2ACAF3A31F23579008 /* BackgroundRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundRefresh.swift; sourceTree = "<group>"; };
@@ -137,6 +139,7 @@
 			isa = PBXGroup;
 			children = (
 				BE320EC35E7AAFBE05F41E50 /* AccountEditView.swift */,
+				572C22C21113998FA609B04F /* CertificateTrustAlert.swift */,
 				6D9F6EEE104E94DB1DBEBBF3 /* ComposeView.swift */,
 				34B525501082170946954159 /* HTMLView.swift */,
 				CFC0043FAA9E7107CC98C50D /* MessageDetailView.swift */,
@@ -258,6 +261,7 @@
 				0A8FC9F265054595B851432F /* AccountEditView.swift in Sources */,
 				4E4783C1DCBEDEDC8203799C /* AccountStore.swift in Sources */,
 				1D4416618EC6BC47FAB7B009 /* BackgroundRefresh.swift in Sources */,
+				BDBF89B80F39D72F3CC7BE31 /* CertificateTrustAlert.swift in Sources */,
 				A79D7B63FE08529A381F727A /* ComposeDraft.swift in Sources */,
 				20D1CEE1FFA5B9E9963F3EEE /* ComposeView.swift in Sources */,
 				B348B2870F155282C7B53695 /* ContactKeySync.swift in Sources */,
@@ -438,7 +442,6 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = DT4C84JLQK;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				INFOPLIST_FILE = App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -477,7 +480,6 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = DT4C84JLQK;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				INFOPLIST_FILE = App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

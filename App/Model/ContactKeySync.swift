@@ -9,6 +9,8 @@ final class ContactKeySync {
     struct Settings: Codable, Equatable {
         var url = ""
         var username = ""
+        /// Fingerprint of a self-signed certificate the user chose to trust.
+        var trustedCertificate: String?
     }
 
     private(set) var settings: Settings
@@ -16,6 +18,8 @@ final class ContactKeySync {
     private(set) var lastSync: Date?
     private(set) var lastResult: String?
     private(set) var lastError: String?
+    /// Set when the server presented a certificate the system rejects.
+    var untrusted: CertificateInfo?
 
     private static let file = "carddav.json"
     private static let passwordKey = "carddav-password"
@@ -67,7 +71,8 @@ final class ContactKeySync {
         isSyncing = true
         defer { isSyncing = false }
         let client = CardDAVClient(baseURL: url, username: settings.username,
-                                   password: Keychain.get(Self.passwordKey) ?? "")
+                                   password: Keychain.get(Self.passwordKey) ?? "",
+                                   trustedCertificate: settings.trustedCertificate)
         do {
             let contacts = try await client.fetchContacts()
             var bindings: [String: String] = [:]
@@ -88,9 +93,25 @@ final class ContactKeySync {
             UserDefaults.standard.set(lastSync, forKey: Self.lastSyncKey)
             lastResult = "\(contacts.count) Kontakte gelesen, \(imported.count) Schlüssel für \(bindings.count) Adressen."
             lastError = nil
+        } catch MailError.untrustedCertificate(let info) {
+            lastError = MailStore.describe(MailError.untrustedCertificate(info))
+            untrusted = info
         } catch {
             lastError = MailStore.describe(error)
         }
+    }
+
+    func trust(_ info: CertificateInfo, keys: KeyStore) async {
+        var updated = settings
+        updated.trustedCertificate = info.sha256
+        save(updated, password: nil)
+        await sync(keys: keys)
+    }
+
+    func setTrustedCertificate(_ fingerprint: String?) {
+        var updated = settings
+        updated.trustedCertificate = fingerprint
+        save(updated, password: nil)
     }
 
     /// Embedded key data, or a key published at an https address.

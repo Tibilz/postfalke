@@ -25,6 +25,7 @@ struct AccountEditView: View {
     @State private var isSaving = false
     @State private var error: String?
     @State private var confirmDelete = false
+    @State private var untrusted: CertificateInfo?
 
     private var isNew: Bool { account == nil }
 
@@ -125,17 +126,23 @@ struct AccountEditView: View {
             Text("Die Nachrichten auf dem Server bleiben erhalten.")
         }
         .onAppear(perform: fill)
+        .certificateTrustAlert($untrusted) { info in
+            trust(info)
+            Task { await verifyAndStore() }
+        }
     }
 
     private func fill() {
         #if DEBUG
-        // UI tests talk to Tools/fakemail.py: -testServer <imapPort>,<smtpPort>
+        // UI tests talk to Tools/fakemail.py: -testServer <imapPort>,<smtpPort>[,tls]
         if account == nil, let index = CommandLine.arguments.firstIndex(of: "-testServer"),
            CommandLine.arguments.count > index + 1 {
-            let ports = CommandLine.arguments[index + 1].split(separator: ",").compactMap { Int($0) }
+            let parts = CommandLine.arguments[index + 1].split(separator: ",")
+            let ports = parts.compactMap { Int($0) }
+            let security: ConnectionSecurity = parts.contains("tls") ? .tls : .none
             if ports.count == 2, imap.host.isEmpty {
-                imap = ServerConfig(host: "127.0.0.1", port: ports[0], security: .none, username: "")
-                smtp = ServerConfig(host: "127.0.0.1", port: ports[1], security: .none, username: "")
+                imap = ServerConfig(host: "127.0.0.1", port: ports[0], security: security, username: "")
+                smtp = ServerConfig(host: "127.0.0.1", port: ports[1], security: security, username: "")
             }
         }
         #endif
@@ -192,9 +199,22 @@ struct AccountEditView: View {
         do {
             try await MailStore.verify(candidate, password: secret)
             store()
+        } catch MailError.untrustedCertificate(let info) {
+            error = MailStore.describe(MailError.untrustedCertificate(info))
+            untrusted = info
         } catch {
             self.error = MailStore.describe(error)
         }
+    }
+
+    /// Pins the certificate for the server it came from (IMAP and SMTP may differ).
+    private func trust(_ info: CertificateInfo) {
+        let host = info.host.lowercased()
+        let imapMatches = imap.host.lowercased() == host && imap.port == info.port
+        let smtpMatches = smtp.host.lowercased() == host && smtp.port == info.port
+        if imapMatches || (!smtpMatches && imap.host.lowercased() == host) { imap.trustedCertificate = info.sha256 }
+        if smtpMatches || (!imapMatches && smtp.host.lowercased() == host) { smtp.trustedCertificate = info.sha256 }
+        error = nil
     }
 
     private func store() {
@@ -231,6 +251,7 @@ private struct ServerSection: View {
             TextField("Benutzername (Standard: E-Mail-Adresse)", text: $config.username)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+            TrustedCertificateRow(fingerprint: $config.trustedCertificate)
         }
     }
 }

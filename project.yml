@@ -28,6 +28,7 @@ targets:
           - fetch
         BGTaskSchedulerPermittedIdentifiers:
           - de.postfalke.app.refresh
+        NSLocalNetworkUsageDescription: Postfalke verbindet sich mit Mail- und Kontaktservern in deinem lokalen Netzwerk, z. B. einer Nextcloud zu Hause.
         LSApplicationQueriesSchemes:
           - bitwarden
         # "Open in Postfalke" for key files from Files, Bitwarden, AirDrop …
