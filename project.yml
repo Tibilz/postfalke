@@ -1,0 +1,90 @@
+name: Postfalke
+options:
+  bundleIdPrefix: de.postfalke
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  developmentLanguage: de
+packages:
+  MailEngine:
+    path: Packages/MailEngine
+targets:
+  Postfalke:
+    type: application
+    platform: iOS
+    sources:
+      - App
+    dependencies:
+      - package: MailEngine
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Postfalke
+        CFBundleDevelopmentRegion: de
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIBackgroundModes:
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - de.postfalke.app.refresh
+        LSApplicationQueriesSchemes:
+          - bitwarden
+        # "Open in Postfalke" for key files from Files, Bitwarden, AirDrop …
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: OpenPGP-Schlüssel
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - de.postfalke.pgp-key
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: de.postfalke.pgp-key
+            UTTypeDescription: OpenPGP-Schlüssel
+            UTTypeConformsTo:
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension: [asc, gpg, pgp, key]
+              public.mime-type: [application/pgp-keys]
+        LSSupportsOpeningDocumentsInPlace: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: de.postfalke.app
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+  PostfalkeUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+    dependencies:
+      - target: Postfalke
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: de.postfalke.uitests
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Postfalke:
+    build:
+      targets:
+        Postfalke: all
+        PostfalkeUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - PostfalkeUITests

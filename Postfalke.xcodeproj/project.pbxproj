@@ -1,0 +1,541 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0A8FC9F265054595B851432F /* AccountEditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE320EC35E7AAFBE05F41E50 /* AccountEditView.swift */; };
+		1411F530D0D02C5A0D2B29FA /* KeyImportFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DEF878BFEDB05329E99207C /* KeyImportFlow.swift */; };
+		1D4416618EC6BC47FAB7B009 /* BackgroundRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0C64A2ACAF3A31F23579008 /* BackgroundRefresh.swift */; };
+		20D1CEE1FFA5B9E9963F3EEE /* ComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D9F6EEE104E94DB1DBEBBF3 /* ComposeView.swift */; };
+		214E7214F01B5DAE49085506 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFA47409536D33C9AF2D3361 /* SidebarView.swift */; };
+		3494357BD5BC748560AC9B72 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CFA3277636C38912180F9A4 /* Keychain.swift */; };
+		379752BBF59DC8FFA5D7AD96 /* HTMLView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B525501082170946954159 /* HTMLView.swift */; };
+		3D32C9F8B907418D74BA85EA /* EndToEndTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AD76F618CF16F98A5C10F67 /* EndToEndTests.swift */; };
+		46BD922CD10C90DD4B0B4FE8 /* MessageDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFC0043FAA9E7107CC98C50D /* MessageDetailView.swift */; };
+		4E4783C1DCBEDEDC8203799C /* AccountStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7521AA35137F400CF85986CE /* AccountStore.swift */; };
+		5A42FBAACA1BD54969C0BEF9 /* MessageListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2DF4936095D2F74EB25568D /* MessageListView.swift */; };
+		5B3F0D4406E4EFAE9F616204 /* KeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0230E0AF8043338E0AA166A6 /* KeyStore.swift */; };
+		624E413982369D4FAF1D0F3D /* PostfalkeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F334EA3BE660E542C43547E5 /* PostfalkeApp.swift */; };
+		A79D7B63FE08529A381F727A /* ComposeDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BB48FED0E19E21400787BC2 /* ComposeDraft.swift */; };
+		B348B2870F155282C7B53695 /* ContactKeySync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306A00D03A5A65B2E73B107A /* ContactKeySync.swift */; };
+		B878BCBB81587609139C9F29 /* MailEngine in Frameworks */ = {isa = PBXBuildFile; productRef = BDEE2440B742260BDEC4E7A2 /* MailEngine */; };
+		C2AB8718D2ECA483BC0102A9 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C92B1246E0A0BDC54D780F4 /* SettingsView.swift */; };
+		C8A34156AD929C44E35AC6EF /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7664358D9DC82E957A7BCD06 /* Account.swift */; };
+		D00B04299F4B322C5C84A2D1 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1DBCF812D3FF4EE234E556A /* RootView.swift */; };
+		D41BF83FFFC23D896528AA09 /* MailStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9878070DAADB3E7EFBC4BD /* MailStore.swift */; };
+		D67B8A4A368E9DD338BBB500 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 677848D37F75FA16628619C0 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		52F290957B074F88B20B3429 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F747943130ECB1D0A97DAC39 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C33F496B91F05EFA1DA81C78;
+			remoteInfo = Postfalke;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0230E0AF8043338E0AA166A6 /* KeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyStore.swift; sourceTree = "<group>"; };
+		1BB48FED0E19E21400787BC2 /* ComposeDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeDraft.swift; sourceTree = "<group>"; };
+		1DEF878BFEDB05329E99207C /* KeyImportFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyImportFlow.swift; sourceTree = "<group>"; };
+		25E65E6C0ABCC4987CE16D62 /* PostfalkeUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = PostfalkeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		306A00D03A5A65B2E73B107A /* ContactKeySync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactKeySync.swift; sourceTree = "<group>"; };
+		34B525501082170946954159 /* HTMLView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLView.swift; sourceTree = "<group>"; };
+		4CFA3277636C38912180F9A4 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
+		677848D37F75FA16628619C0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		6D9F6EEE104E94DB1DBEBBF3 /* ComposeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeView.swift; sourceTree = "<group>"; };
+		7521AA35137F400CF85986CE /* AccountStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountStore.swift; sourceTree = "<group>"; };
+		7664358D9DC82E957A7BCD06 /* Account.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Account.swift; sourceTree = "<group>"; };
+		91D79427B57A6D7806E99C13 /* Postfalke.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Postfalke.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9AD76F618CF16F98A5C10F67 /* EndToEndTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndToEndTests.swift; sourceTree = "<group>"; };
+		9C92B1246E0A0BDC54D780F4 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A0C64A2ACAF3A31F23579008 /* BackgroundRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundRefresh.swift; sourceTree = "<group>"; };
+		BE320EC35E7AAFBE05F41E50 /* AccountEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountEditView.swift; sourceTree = "<group>"; };
+		CFC0043FAA9E7107CC98C50D /* MessageDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageDetailView.swift; sourceTree = "<group>"; };
+		DA9878070DAADB3E7EFBC4BD /* MailStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailStore.swift; sourceTree = "<group>"; };
+		DCE8BD1D1A24FCA980DD9C2F /* MailEngine */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MailEngine; path = Packages/MailEngine; sourceTree = SOURCE_ROOT; };
+		E1DBCF812D3FF4EE234E556A /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		E2DF4936095D2F74EB25568D /* MessageListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageListView.swift; sourceTree = "<group>"; };
+		F334EA3BE660E542C43547E5 /* PostfalkeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostfalkeApp.swift; sourceTree = "<group>"; };
+		FB53F124ECFE453F6F480BD2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		FFA47409536D33C9AF2D3361 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A981E41E50A2353AF1B85FC1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B878BCBB81587609139C9F29 /* MailEngine in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		7314AA6F269A6025690E08CC /* Model */ = {
+			isa = PBXGroup;
+			children = (
+				7664358D9DC82E957A7BCD06 /* Account.swift */,
+				7521AA35137F400CF85986CE /* AccountStore.swift */,
+				A0C64A2ACAF3A31F23579008 /* BackgroundRefresh.swift */,
+				1BB48FED0E19E21400787BC2 /* ComposeDraft.swift */,
+				306A00D03A5A65B2E73B107A /* ContactKeySync.swift */,
+				4CFA3277636C38912180F9A4 /* Keychain.swift */,
+				1DEF878BFEDB05329E99207C /* KeyImportFlow.swift */,
+				0230E0AF8043338E0AA166A6 /* KeyStore.swift */,
+				DA9878070DAADB3E7EFBC4BD /* MailStore.swift */,
+			);
+			path = Model;
+			sourceTree = "<group>";
+		};
+		7D21A8C5DDE6C35216489BCE = {
+			isa = PBXGroup;
+			children = (
+				A5AA07ACD94155C727C3335C /* App */,
+				AF3F72647D21FB4DB7985098 /* Packages */,
+				85BE170441BDF96936F44B27 /* UITests */,
+				E164BF2C2E1E7170C66CE78C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		85BE170441BDF96936F44B27 /* UITests */ = {
+			isa = PBXGroup;
+			children = (
+				9AD76F618CF16F98A5C10F67 /* EndToEndTests.swift */,
+			);
+			path = UITests;
+			sourceTree = "<group>";
+		};
+		A5AA07ACD94155C727C3335C /* App */ = {
+			isa = PBXGroup;
+			children = (
+				677848D37F75FA16628619C0 /* Assets.xcassets */,
+				FB53F124ECFE453F6F480BD2 /* Info.plist */,
+				F334EA3BE660E542C43547E5 /* PostfalkeApp.swift */,
+				7314AA6F269A6025690E08CC /* Model */,
+				D1962B85C45D648C781904B4 /* Views */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		AF3F72647D21FB4DB7985098 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				DCE8BD1D1A24FCA980DD9C2F /* MailEngine */,
+			);
+			path = Packages;
+			sourceTree = "<group>";
+		};
+		D1962B85C45D648C781904B4 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				BE320EC35E7AAFBE05F41E50 /* AccountEditView.swift */,
+				6D9F6EEE104E94DB1DBEBBF3 /* ComposeView.swift */,
+				34B525501082170946954159 /* HTMLView.swift */,
+				CFC0043FAA9E7107CC98C50D /* MessageDetailView.swift */,
+				E2DF4936095D2F74EB25568D /* MessageListView.swift */,
+				E1DBCF812D3FF4EE234E556A /* RootView.swift */,
+				9C92B1246E0A0BDC54D780F4 /* SettingsView.swift */,
+				FFA47409536D33C9AF2D3361 /* SidebarView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		E164BF2C2E1E7170C66CE78C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				91D79427B57A6D7806E99C13 /* Postfalke.app */,
+				25E65E6C0ABCC4987CE16D62 /* PostfalkeUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		C33F496B91F05EFA1DA81C78 /* Postfalke */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 82054847FB1D0E0FA1780C68 /* Build configuration list for PBXNativeTarget "Postfalke" */;
+			buildPhases = (
+				384CD3EB8FA986D1427E29C2 /* Sources */,
+				B95982F7E8D5AA53B0F951E6 /* Resources */,
+				A981E41E50A2353AF1B85FC1 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Postfalke;
+			packageProductDependencies = (
+				BDEE2440B742260BDEC4E7A2 /* MailEngine */,
+			);
+			productName = Postfalke;
+			productReference = 91D79427B57A6D7806E99C13 /* Postfalke.app */;
+			productType = "com.apple.product-type.application";
+		};
+		D2D57166A11B2225A01FCC46 /* PostfalkeUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B9AB55B42581F04577F3CCB6 /* Build configuration list for PBXNativeTarget "PostfalkeUITests" */;
+			buildPhases = (
+				5A508C0995E360815BF86D37 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BEC0AEAE607F8B6B4E6883B3 /* PBXTargetDependency */,
+			);
+			name = PostfalkeUITests;
+			packageProductDependencies = (
+			);
+			productName = PostfalkeUITests;
+			productReference = 25E65E6C0ABCC4987CE16D62 /* PostfalkeUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		F747943130ECB1D0A97DAC39 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					C33F496B91F05EFA1DA81C78 = {
+						ProvisioningStyle = Automatic;
+					};
+					D2D57166A11B2225A01FCC46 = {
+						TestTargetID = C33F496B91F05EFA1DA81C78;
+					};
+				};
+			};
+			buildConfigurationList = 1505839F7304872A768E3356 /* Build configuration list for PBXProject "Postfalke" */;
+			developmentRegion = de;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				de,
+			);
+			mainGroup = 7D21A8C5DDE6C35216489BCE;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AEC4D3C7CF7F51E61C7194A2 /* XCLocalSwiftPackageReference "Packages/MailEngine" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = E164BF2C2E1E7170C66CE78C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C33F496B91F05EFA1DA81C78 /* Postfalke */,
+				D2D57166A11B2225A01FCC46 /* PostfalkeUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B95982F7E8D5AA53B0F951E6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D67B8A4A368E9DD338BBB500 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		384CD3EB8FA986D1427E29C2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C8A34156AD929C44E35AC6EF /* Account.swift in Sources */,
+				0A8FC9F265054595B851432F /* AccountEditView.swift in Sources */,
+				4E4783C1DCBEDEDC8203799C /* AccountStore.swift in Sources */,
+				1D4416618EC6BC47FAB7B009 /* BackgroundRefresh.swift in Sources */,
+				A79D7B63FE08529A381F727A /* ComposeDraft.swift in Sources */,
+				20D1CEE1FFA5B9E9963F3EEE /* ComposeView.swift in Sources */,
+				B348B2870F155282C7B53695 /* ContactKeySync.swift in Sources */,
+				379752BBF59DC8FFA5D7AD96 /* HTMLView.swift in Sources */,
+				1411F530D0D02C5A0D2B29FA /* KeyImportFlow.swift in Sources */,
+				5B3F0D4406E4EFAE9F616204 /* KeyStore.swift in Sources */,
+				3494357BD5BC748560AC9B72 /* Keychain.swift in Sources */,
+				D41BF83FFFC23D896528AA09 /* MailStore.swift in Sources */,
+				46BD922CD10C90DD4B0B4FE8 /* MessageDetailView.swift in Sources */,
+				5A42FBAACA1BD54969C0BEF9 /* MessageListView.swift in Sources */,
+				624E413982369D4FAF1D0F3D /* PostfalkeApp.swift in Sources */,
+				D00B04299F4B322C5C84A2D1 /* RootView.swift in Sources */,
+				C2AB8718D2ECA483BC0102A9 /* SettingsView.swift in Sources */,
+				214E7214F01B5DAE49085506 /* SidebarView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5A508C0995E360815BF86D37 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3D32C9F8B907418D74BA85EA /* EndToEndTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		BEC0AEAE607F8B6B4E6883B3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C33F496B91F05EFA1DA81C78 /* Postfalke */;
+			targetProxy = 52F290957B074F88B20B3429 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		48D2B0D5D842CAE6EDC6FE4A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		6A26E8EBB13EAC09B640013A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = de.postfalke.uitests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Postfalke;
+			};
+			name = Debug;
+		};
+		74231B936573D8368B38AF03 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		9CEE44BAE4FBE4A5995EDB51 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = DT4C84JLQK;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = de.postfalke.app;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		C0B1AF55CECF9C918497886A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = de.postfalke.uitests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Postfalke;
+			};
+			name = Release;
+		};
+		C2A3D2E66521FF7AD3463426 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = DT4C84JLQK;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = de.postfalke.app;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1505839F7304872A768E3356 /* Build configuration list for PBXProject "Postfalke" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				74231B936573D8368B38AF03 /* Debug */,
+				48D2B0D5D842CAE6EDC6FE4A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		82054847FB1D0E0FA1780C68 /* Build configuration list for PBXNativeTarget "Postfalke" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C2A3D2E66521FF7AD3463426 /* Debug */,
+				9CEE44BAE4FBE4A5995EDB51 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B9AB55B42581F04577F3CCB6 /* Build configuration list for PBXNativeTarget "PostfalkeUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6A26E8EBB13EAC09B640013A /* Debug */,
+				C0B1AF55CECF9C918497886A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		AEC4D3C7CF7F51E61C7194A2 /* XCLocalSwiftPackageReference "Packages/MailEngine" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/MailEngine;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		BDEE2440B742260BDEC4E7A2 /* MailEngine */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MailEngine;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = F747943130ECB1D0A97DAC39 /* Project object */;
+}

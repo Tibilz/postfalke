@@ -1,0 +1,9 @@
+build/
+PGPCore/target/
+Packages/MailEngine/.build/
+*.xcodeproj/xcuserdata/
+.DS_Store
+# Built by PGPCore/build-xcframework.sh (about 160 MB, too large for git)
+Packages/MailEngine/Frameworks/
+xcuserdata/
+.swiftpm/
