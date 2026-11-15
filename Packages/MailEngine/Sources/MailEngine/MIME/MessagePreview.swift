@@ -75,10 +75,17 @@ public enum MessagePreview {
     /// One line of running text: no quotes, no signature, collapsed whitespace.
     private static func clean(_ text: String) -> String {
         var lines: [String] = []
-        for raw in text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n") {
+        let all = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+        for (index, raw) in all.enumerated() {
             if raw == "-- " { break }
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix(">") { continue }
+            // "Am … schrieb X:" / "On … wrote:" introduces the quote; it is not content.
+            if line.hasSuffix(":"),
+               let next = all[(index + 1)...].first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }),
+               next.trimmingCharacters(in: .whitespaces).hasPrefix(">") {
+                continue
+            }
             lines.append(line)
         }
         return lines.joined(separator: " ")

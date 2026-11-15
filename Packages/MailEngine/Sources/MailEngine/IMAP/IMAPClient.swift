@@ -293,6 +293,23 @@ public actor IMAPClient {
         return Self.headers(from: responses)
     }
 
+    /// Headers of every message with a UID of at least `uid` (mail that arrived since the last look).
+    public func fetchHeaders(fromUID uid: UInt32) async throws -> [MessageHeader] {
+        let responses = try await run([.text("UID FETCH \(uid):* \(Self.headerItems)")])
+        // "n:*" also returns the newest message when nothing has a UID of n or more.
+        return Self.headers(from: responses).filter { $0.uid >= uid }
+    }
+
+    /// Current flags of the messages in a UID range; UIDs missing from the result were deleted.
+    public func fetchFlags(uids range: ClosedRange<UInt32>) async throws -> [UInt32: Set<String>] {
+        var result: [UInt32: Set<String>] = [:]
+        for case .fetch(_, let items) in try await run([.text("UID FETCH \(range.lowerBound):\(range.upperBound) (UID FLAGS)")]) {
+            guard let uid = items["UID"]?.number.flatMap({ UInt32(exactly: $0) }) else { continue }
+            result[uid] = Set(items["FLAGS"]?.items.compactMap(\.text) ?? [])
+        }
+        return result
+    }
+
     static func headers(from responses: [IMAPResponse]) -> [MessageHeader] {
         var result: [MessageHeader] = []
         for case .fetch(_, let items) in responses {
@@ -379,6 +396,16 @@ public actor IMAPClient {
     public func append(_ message: Data, to path: String, flags: [String] = ["\\Seen"]) async throws {
         try await run([.text("APPEND ")] + astring(path)
                       + [.text(" (\(flags.joined(separator: " "))) "), .literal(message)])
+    }
+
+    /// UIDs of messages with a header field containing `value` (e.g. a Message-ID).
+    public func search(header name: String, value: String) async throws -> [UInt32] {
+        var uids: [UInt32] = []
+        let command: [Segment] = [.text("UID SEARCH HEADER \(name) ")] + astring(value)
+        for case .search(let found) in try await run(command) {
+            uids.append(contentsOf: found)
+        }
+        return uids.sorted()
     }
 
     /// UIDs of messages whose headers or text contain `query`.

@@ -94,7 +94,8 @@ enum MessageHTML {
 
     /// Plain text as a page: escaped, links clickable, quoted lines dimmed.
     static func page(plain: String) -> String {
-        let lines = plain.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n").map { line -> String in
+        let trimmed = plain.replacingOccurrences(of: "\r\n", with: "\n").trimmingCharacters(in: .newlines)
+        let lines = trimmed.components(separatedBy: "\n").map { line -> String in
             var escaped = escape(line)
             let ns = escaped as NSString
             for match in link.matches(in: escaped, range: NSRange(location: 0, length: ns.length)).reversed() {

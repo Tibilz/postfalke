@@ -145,8 +145,8 @@ public struct MIMEPart: Sendable {
     }
 }
 
-public struct MailAttachment: Identifiable, Sendable, Hashable {
-    public let id = UUID()
+public struct MailAttachment: Identifiable, Sendable, Hashable, Codable {
+    public var id = UUID()
     public var filename: String
     public var mimeType: String
     public var data: Data

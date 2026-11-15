@@ -1,9 +1,47 @@
 import Foundation
 import MailEngine
 
-/// The editable state of the compose sheet.
-struct ComposeDraft: Identifiable {
-    let id = UUID()
+/// OpenPGP choices of a draft; nil in a draft means "use the account defaults".
+struct DraftOptions: Codable, Equatable {
+    var sign = false
+    var encrypt = false
+    var protectSubject = true
+    var attachOwnKey = false
+
+    /// `sign=1; encrypt=0; …` for the X-Postfalke-Draft header of a saved draft.
+    var headerValue: String {
+        "sign=\(sign ? 1 : 0); encrypt=\(encrypt ? 1 : 0); protect-subject=\(protectSubject ? 1 : 0); attach-key=\(attachOwnKey ? 1 : 0)"
+    }
+
+    init(sign: Bool = false, encrypt: Bool = false, protectSubject: Bool = true, attachOwnKey: Bool = false) {
+        self.sign = sign
+        self.encrypt = encrypt
+        self.protectSubject = protectSubject
+        self.attachOwnKey = attachOwnKey
+    }
+
+    init?(headerValue: String?) {
+        guard let headerValue else { return nil }
+        var values: [String: Bool] = [:]
+        for pair in headerValue.split(separator: ";") {
+            let parts = pair.split(separator: "=").map { $0.trimmingCharacters(in: .whitespaces) }
+            if parts.count == 2 { values[parts[0]] = parts[1] == "1" }
+        }
+        self.init(sign: values["sign"] ?? false, encrypt: values["encrypt"] ?? false,
+                  protectSubject: values["protect-subject"] ?? true, attachOwnKey: values["attach-key"] ?? false)
+    }
+}
+
+/// The message a reply answers, to set \Answered after sending.
+struct AnsweredMessage: Codable, Equatable {
+    var folder: FolderKey
+    var uid: UInt32
+}
+
+/// The editable state of the compose sheet. Codable: drafts are saved locally
+/// while writing and travel through the outbox.
+struct ComposeDraft: Identifiable, Codable, Equatable {
+    var id = UUID()
     var accountID: UUID
     var to = ""
     var cc = ""
@@ -14,9 +52,18 @@ struct ComposeDraft: Identifiable {
     var inReplyTo: String?
     var references: String?
     /// The message being answered, to set \Answered after sending.
-    var answering: (folder: FolderKey, uid: UInt32)?
+    var answering: AnsweredMessage?
     /// Replies to encrypted mail should be encrypted as well.
     var preferEncryption = false
+    var options: DraftOptions?
+    /// Message-ID of the copy in the server's Drafts folder, once saved there.
+    var serverMessageID: String?
+
+    /// True when there is anything worth keeping.
+    var hasContent: Bool {
+        !to.isEmpty || !cc.isEmpty || !bcc.isEmpty || !subject.isEmpty || !attachments.isEmpty
+            || !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     static func new(account: Account, to: String = "") -> ComposeDraft {
         var draft = ComposeDraft(accountID: account.id)
@@ -64,7 +111,7 @@ struct ComposeDraft: Identifiable {
         draft.body = "\n\nAm \(when) schrieb \(who):\n\(quote(text))" + signatureBlock(account)
         draft.inReplyTo = header.messageID
         draft.references = [header.references, header.messageID].compactMap { $0 }.joined(separator: " ")
-        draft.answering = (folder, header.uid)
+        draft.answering = AnsweredMessage(folder: folder, uid: header.uid)
         draft.preferEncryption = wasEncrypted
         return draft
     }

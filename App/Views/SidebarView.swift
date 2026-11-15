@@ -5,12 +5,21 @@ import MailEngine
 struct SidebarView: View {
     @Environment(AccountStore.self) private var accounts
     @Environment(MailStore.self) private var mail
+    @Environment(Outbox.self) private var outbox
+    @Environment(NetworkMonitor.self) private var network
     @Binding var selection: FolderKey?
     @Binding var showSettings: Bool
     var compose: () -> Void
 
     var body: some View {
         List(selection: $selection) {
+            if !outbox.waiting.isEmpty || !LocalDrafts.all().isEmpty {
+                Section {
+                    FolderRow(title: "Postausgang", icon: "tray.and.arrow.up",
+                              unread: outbox.waiting.isEmpty ? nil : outbox.waiting.count)
+                        .tag(FolderKey.outbox)
+                }
+            }
             ForEach(accounts.accounts) { account in
                 Section {
                     let folders = mail.folders[account.id] ?? []
@@ -29,7 +38,7 @@ struct SidebarView: View {
                                 .selectionDisabled()
                         }
                     }
-                    if let error = mail.folderErrors[account.id] {
+                    if network.isOnline, let error = mail.folderErrors[account.id] {
                         ErrorNotice(message: error)
                     }
                 } header: {
@@ -54,7 +63,7 @@ struct SidebarView: View {
                 Spacer()
             }
             ToolbarItem(placement: .status) {
-                UpdateStatusText(lastUpdated: inboxUpdated, isLoading: false)
+                UpdateStatusText(lastUpdated: inboxUpdated, isLoading: false, offline: !network.isOnline)
             }
             ToolbarItem(placement: .bottomBar) {
                 Button(action: compose) {

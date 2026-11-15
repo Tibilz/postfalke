@@ -5,7 +5,6 @@ import MailEngine
 struct MessageDetailView: View {
     @Environment(AccountStore.self) private var accounts
     @Environment(MailStore.self) private var mail
-    @Environment(KeyStore.self) private var keys
 
     let folder: FolderKey
     let header: MessageHeader
@@ -15,24 +14,16 @@ struct MessageDetailView: View {
     var close: () -> Void
 
     @State private var message: ProcessedMessage?
-    @State private var loadError: String?
-    @State private var allowRemote = false
-    @State private var bodyHeight: CGFloat = 60
-    @State private var preview: URL?
-    @State private var notice: String?
     @State private var showDetails = false
 
     private var subject: String {
-        let text = message?.protectedSubject ?? mail.subject(folder, header: header)
-        return text.isEmpty ? "Kein Betreff" : text
+        MessageActions.subject(message: message, header: header, folder: folder, mail: mail)
     }
-
-    private var sender: MailAddress? { header.from.first }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                headerBlock
+                MessageHeaderBlock(folder: folder, header: header, showDetails: $showDetails)
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
 
@@ -46,69 +37,55 @@ struct MessageDetailView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 16)
 
-                if let message {
-                    SecurityBanner(security: message.security)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 10)
-                    keyOffer(message)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 10)
-                    if !message.content.attachments.isEmpty {
-                        attachments(message.content.attachments)
-                            .padding(.top, 12)
-                    }
-                    content(message)
-                        .padding(.horizontal, 14)
-                        .padding(.top, 14)
-                } else if let loadError {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ErrorNotice(message: loadError)
-                        Button("Erneut versuchen") { Task { await load() } }
-                            .buttonStyle(.bordered)
-                    }
-                    .padding(16)
-                } else {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 60)
-                }
+                MessageBody(folder: folder, header: header) { message = $0 }
             }
             .padding(.bottom, 24)
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
-        .task { await load() }
-        .quickLookPreview($preview)
-        .alert("OpenPGP", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
-            Button("Text kopieren") { UIPasteboard.general.string = notice }
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(notice ?? "")
-        }
     }
 
-    // MARK: Loading
+    private var account: Account? { accounts.account(folder.accountID) }
 
-    private func load() async {
-        loadError = nil
-        do {
-            let raw = try await mail.rawMessage(folder, uid: header.uid)
-            let context = keys.context
-            message = await Task.detached(priority: .userInitiated) {
-                MessageProcessor.process(raw: raw, context: context)
-            }.value
-            if let protected = message?.protectedSubject, header.isEncrypted {
-                mail.rememberSubject(protected, folder, uid: header.uid)
+    /// Neighbours in the list (newest first): `previous` is above, `next` below.
+    private var neighbours: (previous: UInt32?, next: UInt32?) {
+        let uids = mail.mailbox(folder).headers.map(\.uid)
+        guard let index = uids.firstIndex(of: header.uid) else { return (nil, nil) }
+        return (index > 0 ? uids[index - 1] : nil, index + 1 < uids.count ? uids[index + 1] : nil)
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            let around = neighbours
+            Button {
+                if let uid = around.previous { navigate(uid) }
+            } label: {
+                Label("Vorherige E-Mail", systemImage: "chevron.up")
             }
-            await mail.setSeen(folder, header: header, seen: true)
-        } catch {
-            loadError = MailStore.describe(error)
+            .disabled(around.previous == nil)
+            Button {
+                if let uid = around.next { navigate(uid) }
+            } label: {
+                Label("Nächste E-Mail", systemImage: "chevron.down")
+            }
+            .disabled(around.next == nil)
         }
+        MessageToolbar(folder: folder, messages: [header], latest: header, loaded: message,
+                       compose: compose, close: close)
     }
+}
 
-    // MARK: Header
+/// Avatar, sender, date and the recipient line that expands to all addresses.
+struct MessageHeaderBlock: View {
+    @Environment(AccountStore.self) private var accounts
+    let folder: FolderKey
+    let header: MessageHeader
+    @Binding var showDetails: Bool
 
-    private var headerBlock: some View {
+    private var sender: MailAddress? { header.from.first }
+
+    var body: some View {
         HStack(alignment: .top, spacing: 12) {
             AvatarView(name: sender?.displayName ?? "", size: 44)
             VStack(alignment: .leading, spacing: 3) {
@@ -170,8 +147,81 @@ struct MessageDetailView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
+}
 
-    // MARK: Content
+/// Loads, decrypts and shows one message: security, offered keys, attachments, text.
+struct MessageBody: View {
+    @Environment(MailStore.self) private var mail
+    @Environment(KeyStore.self) private var keys
+
+    let folder: FolderKey
+    let header: MessageHeader
+    var onLoaded: (ProcessedMessage) -> Void = { _ in }
+
+    @State private var message: ProcessedMessage?
+    @State private var loadError: String?
+    @State private var allowRemote = false
+    @State private var bodyHeight: CGFloat = 60
+    @State private var preview: URL?
+    @State private var notice: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let message {
+                SecurityBanner(security: message.security)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                keyOffer(message)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                if !message.content.attachments.isEmpty {
+                    attachments(message.content.attachments)
+                        .padding(.top, 12)
+                }
+                content(message)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 14)
+            } else if let loadError {
+                VStack(alignment: .leading, spacing: 12) {
+                    ErrorNotice(message: loadError)
+                    Button("Erneut versuchen") { Task { await load() } }
+                        .buttonStyle(.bordered)
+                }
+                .padding(16)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 40)
+            }
+        }
+        .task { await load() }
+        .quickLookPreview($preview)
+        .alert("OpenPGP", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
+            Button("Text kopieren") { UIPasteboard.general.string = notice }
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(notice ?? "")
+        }
+    }
+
+    private func load() async {
+        loadError = nil
+        do {
+            let raw = try await mail.rawMessage(folder, uid: header.uid)
+            let context = keys.context
+            let processed = await Task.detached(priority: .userInitiated) {
+                MessageProcessor.process(raw: raw, context: context)
+            }.value
+            message = processed
+            onLoaded(processed)
+            if let protected = processed.protectedSubject, header.isEncrypted {
+                mail.rememberSubject(protected, folder, uid: header.uid)
+            }
+            await mail.setSeen(folder, header: header, seen: true)
+        } catch {
+            loadError = MailStore.describe(error)
+        }
+    }
 
     @ViewBuilder
     private func content(_ message: ProcessedMessage) -> some View {
@@ -250,8 +300,6 @@ struct MessageDetailView: View {
         }
     }
 
-    // MARK: Keys offered by the sender
-
     /// Public keys that came with the message and are not in the key ring yet.
     private func offeredKeys(_ message: ProcessedMessage) -> [Data] {
         var sources = message.content.attachments.filter(\.isPGPKey).map(\.data)
@@ -296,12 +344,17 @@ struct MessageDetailView: View {
             .foregroundStyle(.tint)
         }
     }
+}
 
-    // MARK: Toolbar
+/// Reply/forward helpers shared by the single message and the conversation view.
+@MainActor
+enum MessageActions {
+    static func subject(message: ProcessedMessage?, header: MessageHeader, folder: FolderKey, mail: MailStore) -> String {
+        let text = message?.protectedSubject ?? mail.subject(folder, header: header)
+        return text.isEmpty ? "Kein Betreff" : text
+    }
 
-    private var account: Account? { accounts.account(folder.accountID) }
-
-    private var replyText: String {
+    static func replyText(_ message: ProcessedMessage?) -> String {
         if let plain = message?.content.plain, !plain.isEmpty { return plain }
         guard let html = message?.content.html else { return "" }
         // Crude text version of an HTML-only mail for quoting.
@@ -316,41 +369,41 @@ struct MessageDetailView: View {
             .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
     }
 
-    private func reply(all: Bool) {
-        guard let account else { return }
-        compose(.reply(to: header, subject: subject, text: replyText,
-                       wasEncrypted: message?.security.wasEncrypted ?? false,
-                       all: all, account: account, folder: folder))
+    static func reply(_ header: MessageHeader, message: ProcessedMessage?, all: Bool, account: Account,
+                      folder: FolderKey, mail: MailStore) -> ComposeDraft {
+        .reply(to: header, subject: subject(message: message, header: header, folder: folder, mail: mail),
+               text: replyText(message), wasEncrypted: message?.security.wasEncrypted ?? false,
+               all: all, account: account, folder: folder)
     }
 
-    /// Neighbours in the list (newest first): `previous` is above, `next` below.
-    private var neighbours: (previous: UInt32?, next: UInt32?) {
-        let uids = mail.mailbox(folder).headers.map(\.uid)
-        guard let index = uids.firstIndex(of: header.uid) else { return (nil, nil) }
-        return (index > 0 ? uids[index - 1] : nil, index + 1 < uids.count ? uids[index + 1] : nil)
+    static func forward(_ header: MessageHeader, message: ProcessedMessage?, account: Account,
+                        folder: FolderKey, mail: MailStore) -> ComposeDraft {
+        .forward(header, subject: subject(message: message, header: header, folder: folder, mail: mail),
+                 text: replyText(message), attachments: message?.content.attachments ?? [],
+                 wasEncrypted: message?.security.wasEncrypted ?? false, account: account)
     }
+}
 
-    @ToolbarContentBuilder
-    private var toolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            let around = neighbours
-            Button {
-                if let uid = around.previous { navigate(uid) }
-            } label: {
-                Label("Vorherige E-Mail", systemImage: "chevron.up")
-            }
-            .disabled(around.previous == nil)
-            Button {
-                if let uid = around.next { navigate(uid) }
-            } label: {
-                Label("Nächste E-Mail", systemImage: "chevron.down")
-            }
-            .disabled(around.next == nil)
-        }
+/// Bottom bar of a message or conversation: delete, move, reply menu, compose.
+/// Delete and move act on all `messages`; reply and flag on `latest`.
+struct MessageToolbar: ToolbarContent {
+    @Environment(AccountStore.self) private var accounts
+    @Environment(MailStore.self) private var mail
+
+    let folder: FolderKey
+    let messages: [MessageHeader]
+    let latest: MessageHeader
+    let loaded: ProcessedMessage?
+    var compose: (ComposeDraft) -> Void
+    var close: () -> Void
+
+    private var account: Account? { accounts.account(folder.accountID) }
+
+    var body: some ToolbarContent {
         ToolbarItem(placement: .bottomBar) {
             Button {
                 close()
-                Task { await mail.delete(folder, header: header) }
+                Task { for header in messages { await mail.delete(folder, header: header) } }
             } label: {
                 Label("Löschen", systemImage: "trash")
             }
@@ -360,7 +413,7 @@ struct MessageDetailView: View {
                 ForEach(mail.folders[folder.accountID]?.filter { $0.isSelectable && $0.path != folder.path } ?? []) { target in
                     Button {
                         close()
-                        Task { await mail.move(folder, header: header, to: target) }
+                        Task { for header in messages { await mail.move(folder, header: header, to: target) } }
                     } label: {
                         Label(FolderRow.title(target), systemImage: FolderRow.icon(target))
                     }
@@ -371,32 +424,31 @@ struct MessageDetailView: View {
         }
         ToolbarItem(placement: .bottomBar) {
             Menu {
-                Button { reply(all: false) } label: { Label("Antworten", systemImage: "arrowshape.turn.up.left") }
-                Button { reply(all: true) } label: { Label("Allen antworten", systemImage: "arrowshape.turn.up.left.2") }
                 Button {
-                    guard let account else { return }
-                    compose(.forward(header, subject: subject, text: replyText,
-                                     attachments: message?.content.attachments ?? [],
-                                     wasEncrypted: message?.security.wasEncrypted ?? false, account: account))
-                } label: {
-                    Label("Weiterleiten", systemImage: "arrowshape.turn.up.right")
-                }
+                    if let account { compose(MessageActions.reply(latest, message: loaded, all: false, account: account, folder: folder, mail: mail)) }
+                } label: { Label("Antworten", systemImage: "arrowshape.turn.up.left") }
+                Button {
+                    if let account { compose(MessageActions.reply(latest, message: loaded, all: true, account: account, folder: folder, mail: mail)) }
+                } label: { Label("Allen antworten", systemImage: "arrowshape.turn.up.left.2") }
+                Button {
+                    if let account { compose(MessageActions.forward(latest, message: loaded, account: account, folder: folder, mail: mail)) }
+                } label: { Label("Weiterleiten", systemImage: "arrowshape.turn.up.right") }
                 Divider()
                 Button {
-                    Task { await mail.setFlagged(folder, header: header, flagged: !header.isFlagged) }
+                    Task { await mail.setFlagged(folder, header: latest, flagged: !latest.isFlagged) }
                 } label: {
-                    Label(header.isFlagged ? "Markierung entfernen" : "Markieren", systemImage: "flag")
+                    Label(latest.isFlagged ? "Markierung entfernen" : "Markieren", systemImage: "flag")
                 }
                 Button {
                     close()
-                    Task { await mail.setSeen(folder, header: header, seen: false) }
+                    Task { await mail.setSeen(folder, header: latest, seen: false) }
                 } label: {
                     Label("Als ungelesen markieren", systemImage: "envelope.badge")
                 }
             } label: {
                 Label("Antworten", systemImage: "arrowshape.turn.up.left")
             }
-            .disabled(message == nil)
+            .disabled(loaded == nil)
         }
         ToolbarItem(placement: .bottomBar) {
             Button {

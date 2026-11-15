@@ -15,8 +15,8 @@ use pgp::composed::{
 use pgp::crypto::ecc_curve::ECCCurve;
 use pgp::crypto::hash::HashAlgorithm;
 use pgp::crypto::sym::SymmetricKeyAlgorithm;
-use pgp::packet::{Signature, SignatureType};
-use pgp::types::{CompressionAlgorithm, KeyDetails, Password, SigningKey, VerifyingKey};
+use pgp::packet::{RevocationCode, Signature, SignatureConfig, SignatureType, Subpacket, SubpacketData};
+use pgp::types::{CompressionAlgorithm, Duration, KeyDetails, Password, SigningKey, Tag, Timestamp, VerifyingKey};
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -78,6 +78,23 @@ enum Request {
         text: String,
         #[serde(default)]
         verifiers: Vec<String>,
+    },
+    /// New expiry for the key and its subkeys; `expires` is a unix time, absent or 0 = never.
+    SetExpiry {
+        secret: String,
+        #[serde(default)]
+        passphrase: String,
+        expires: Option<u64>,
+    },
+    Revoke {
+        secret: String,
+        #[serde(default)]
+        passphrase: String,
+        /// 0 none, 1 superseded, 2 compromised, 3 retired
+        #[serde(default)]
+        reason: u8,
+        #[serde(default)]
+        text: String,
     },
 }
 
@@ -563,6 +580,99 @@ fn verify_cleartext(text: String, verifiers: Vec<String>) -> Res<Value> {
     Ok(json!({ "text": msg.text(), "signatures": signatures }))
 }
 
+fn unlock_check(key: &SignedSecretKey, pw: &Password) -> Res<()> {
+    key.primary_key
+        .unlock(pw, |_, _| Ok(()))
+        .map_err(e)?
+        .map_err(|_| "wrong passphrase".to_string())
+}
+
+/// Replaces creation time and key expiry in a copied self-signature config.
+fn renewed(config: &SignatureConfig, validity: Option<u32>) -> Res<SignatureConfig> {
+    let mut config = config.clone();
+    config.hashed_subpackets.retain(|p| {
+        !matches!(p.data, SubpacketData::SignatureCreationTime(_) | SubpacketData::KeyExpirationTime(_))
+    });
+    config.hashed_subpackets.insert(
+        0,
+        Subpacket::regular(SubpacketData::SignatureCreationTime(Timestamp::now())).map_err(e)?,
+    );
+    if let Some(seconds) = validity {
+        config.hashed_subpackets.push(
+            Subpacket::regular(SubpacketData::KeyExpirationTime(Duration::from_secs(seconds))).map_err(e)?,
+        );
+    }
+    Ok(config)
+}
+
+fn newest(sigs: &[Signature], pick: impl Fn(&Signature) -> bool) -> Option<&Signature> {
+    sigs.iter()
+        .filter(|s| pick(s))
+        .max_by_key(|s| s.created().map(|t| t.as_secs()).unwrap_or(0))
+}
+
+fn finish(key: SignedSecretKey) -> Res<Value> {
+    key.verify_bindings().map_err(e)?;
+    let armored = key.to_armored_string(ArmorOptions::default()).map_err(e)?;
+    let info = key_info_public(&key.to_public_key(), true, armored)?;
+    Ok(json!({ "key": info }))
+}
+
+/// New self-signatures for every user ID and subkey with the new expiry.
+fn set_expiry(secret: String, passphrase: String, expires: Option<u64>) -> Res<Value> {
+    let mut key = parse_secret(&secret)?;
+    let pw = Password::from(passphrase);
+    unlock_check(&key, &pw)?;
+    let created = key.primary_key.created_at().as_secs() as u64;
+    let validity = match expires {
+        None | Some(0) => None,
+        Some(t) if t <= created => return Err("expiry before key creation".into()),
+        Some(t) => Some(u32::try_from(t - created).map_err(|_| "expiry too far away".to_string())?),
+    };
+    let primary_pub = key.primary_key.public_key().clone();
+
+    for user in key.details.users.iter_mut() {
+        let Some(latest) = newest(&user.signatures, |s| s.is_certification()) else { continue };
+        let Some(config) = latest.config() else { continue };
+        let sig = renewed(config, validity)?
+            .sign_certification(&key.primary_key, &primary_pub, &pw, Tag::UserId, &user.id)
+            .map_err(e)?;
+        user.signatures.push(sig);
+    }
+    for sub in key.secret_subkeys.iter_mut() {
+        let Some(latest) = newest(&sub.signatures, |s| s.typ() == Some(SignatureType::SubkeyBinding)) else { continue };
+        let Some(config) = latest.config() else { continue };
+        let sig = renewed(config, validity)?
+            .sign_subkey_binding(&key.primary_key, &primary_pub, &pw, sub.key.public_key())
+            .map_err(e)?;
+        sub.signatures.push(sig);
+    }
+    finish(key)
+}
+
+/// Adds a key revocation signature.
+fn revoke(secret: String, passphrase: String, reason: u8, text: String) -> Res<Value> {
+    let mut key = parse_secret(&secret)?;
+    let pw = Password::from(passphrase);
+    unlock_check(&key, &pw)?;
+    let code = match reason {
+        1 => RevocationCode::KeySuperseded,
+        2 => RevocationCode::KeyCompromised,
+        3 => RevocationCode::KeyRetired,
+        _ => RevocationCode::NoReason,
+    };
+    let mut config = SignatureConfig::from_key(thread_rng(), &key.primary_key, SignatureType::KeyRevocation).map_err(e)?;
+    config.hashed_subpackets = vec![
+        Subpacket::regular(SubpacketData::SignatureCreationTime(Timestamp::now())).map_err(e)?,
+        Subpacket::regular(SubpacketData::IssuerFingerprint(key.fingerprint())).map_err(e)?,
+        Subpacket::regular(SubpacketData::RevocationReason(code, bytes::Bytes::from(text))).map_err(e)?,
+    ];
+    let primary_pub = key.primary_key.public_key().clone();
+    let sig = config.sign_key(&key.primary_key, &pw, &primary_pub).map_err(e)?;
+    key.details.revocation_signatures.push(sig);
+    finish(key)
+}
+
 fn dispatch(req: Request) -> Res<Value> {
     match req {
         Request::Generate { user_id, passphrase } => generate(user_id, passphrase),
@@ -575,6 +685,8 @@ fn dispatch(req: Request) -> Res<Value> {
             verify_detached(data, signature, verifiers)
         }
         Request::VerifyCleartext { text, verifiers } => verify_cleartext(text, verifiers),
+        Request::SetExpiry { secret, passphrase, expires } => set_expiry(secret, passphrase, expires),
+        Request::Revoke { secret, passphrase, reason, text } => revoke(secret, passphrase, reason, text),
     }
 }
 
@@ -715,6 +827,51 @@ mod tests {
             "verifiers": [alice["public_armored"]],
         }));
         assert_eq!(bad["signatures"][0]["status"], "invalid", "{bad}");
+    }
+
+    #[test]
+    fn expiry_and_revocation() {
+        let alice = gen("Alice <alice@example.org>", "pw");
+        let bob = gen("Bob <bob@example.org>", "");
+        assert!(alice["expires"].is_null());
+
+        // Expire in a year: readable from the public key, still usable.
+        let in_a_year = now_secs() + 365 * 24 * 3600;
+        let r = run(json!({"op": "set_expiry", "secret": alice["armored"], "passphrase": "pw", "expires": in_a_year}));
+        assert_eq!(r["ok"], true, "{r}");
+        let expiring = r["key"].clone();
+        let expires = expiring["expires"].as_u64().unwrap();
+        assert!(expires.abs_diff(in_a_year) <= 1, "{expires} vs {in_a_year}");
+        assert_eq!(expiring["can_encrypt"], true);
+        let public = run(json!({"op": "inspect", "data": B64.encode(expiring["public_armored"].as_str().unwrap())}));
+        assert_eq!(public["keys"][0]["expires"].as_u64().unwrap(), expires);
+
+        // Back to "never".
+        let r = run(json!({"op": "set_expiry", "secret": expiring["armored"], "passphrase": "pw"}));
+        assert!(r["key"]["expires"].is_null(), "{r}");
+
+        // Already expired: encryption to it is refused.
+        let past = alice["created"].as_u64().unwrap() + 1;
+        let r = run(json!({"op": "set_expiry", "secret": alice["armored"], "passphrase": "pw", "expires": past}));
+        assert_eq!(r["ok"], true, "{r}");
+        let expired = r["key"].clone();
+        let enc = run(json!({"op": "encrypt", "data": B64.encode("x"), "recipients": [expired["public_armored"]]}));
+        assert_eq!(enc["ok"], false);
+        assert!(enc["error"].as_str().unwrap().contains("expired"), "{enc}");
+
+        // Wrong passphrase changes nothing.
+        let r = run(json!({"op": "set_expiry", "secret": alice["armored"], "passphrase": "x", "expires": in_a_year}));
+        assert_eq!(r["ok"], false);
+
+        // Revocation: marked as revoked, refused for encryption, signatures still verify.
+        let r = run(json!({"op": "revoke", "secret": bob["armored"], "reason": 3, "text": "neuer Schlüssel"}));
+        assert_eq!(r["ok"], true, "{r}");
+        let revoked = r["key"].clone();
+        assert_eq!(revoked["revoked"], true);
+        let public = run(json!({"op": "inspect", "data": B64.encode(revoked["public_armored"].as_str().unwrap())}));
+        assert_eq!(public["keys"][0]["revoked"], true);
+        let enc = run(json!({"op": "encrypt", "data": B64.encode("x"), "recipients": [revoked["public_armored"]]}));
+        assert!(enc["error"].as_str().unwrap().contains("revoked"), "{enc}");
     }
 
     #[test]

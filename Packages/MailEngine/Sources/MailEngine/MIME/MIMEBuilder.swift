@@ -15,6 +15,8 @@ public struct OutgoingMessage: Sendable {
     public var messageID: String
     /// Own public key (armored) to advertise in an Autocrypt header.
     public var autocryptKey: String?
+    /// Additional header fields (e.g. `Bcc` and options of a saved draft).
+    public var extraHeaders: [String: String] = [:]
 
     public init(from: MailAddress) {
         self.from = from
@@ -87,6 +89,13 @@ public enum MIMEBuilder {
             let keydata = binary.base64EncodedString(options: [.lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed])
                 .replacingOccurrences(of: "\r\n", with: "\r\n ")
             head += "Autocrypt: addr=\(message.from.email); prefer-encrypt=mutual; keydata=\r\n \(keydata)\r\n"
+        }
+        for (name, value) in message.extraHeaders.sorted(by: { $0.key < $1.key }) {
+            // Field names are ours; values are user data and must stay on one line.
+            let safeName = name.filter { $0.isLetter || $0.isNumber || $0 == "-" }
+            let safeValue = value.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ")
+            guard !safeName.isEmpty else { continue }
+            head += "\(safeName): \(HeaderCodec.encodeWords(safeValue))\r\n"
         }
         head += "User-Agent: Postfalke (iOS)\r\n"
         head += "MIME-Version: 1.0\r\n"

@@ -80,10 +80,12 @@ final class KeyStore {
     }
 
     @discardableResult
-    func generate(name: String, email: String, passphrase: String) async throws -> PGPKeyInfo {
+    func generate(name: String, email: String, passphrase: String, expires: Date? = nil) async throws -> PGPKeyInfo {
         let userID = name.isEmpty ? "<\(email)>" : "\(name) <\(email)>"
         let key = try await Task.detached(priority: .userInitiated) {
-            try PGP.generateKey(userID: userID, passphrase: passphrase)
+            let fresh = try PGP.generateKey(userID: userID, passphrase: passphrase)
+            guard let expires else { return fresh }
+            return try PGP.setExpiry(PGPSecret(armored: fresh.armored, passphrase: passphrase), expires: expires)
         }.value
         store(key, passphrase: passphrase)
         return key
@@ -123,6 +125,40 @@ final class KeyStore {
             store(key, passphrase: passphrase)
         }
         return found
+    }
+
+    /// New expiry for an own key (nil = never).
+    func setExpiry(_ key: PGPKeyInfo, expires: Date?) async throws {
+        guard let secret = secret(for: key.fingerprint) else { throw MailError.pgp("Kein privater Schlüssel vorhanden.") }
+        let updated = try await Task.detached(priority: .userInitiated) {
+            try PGP.setExpiry(secret, expires: expires)
+        }.value
+        store(updated, passphrase: secret.passphrase)
+    }
+
+    func revoke(_ key: PGPKeyInfo, reason: PGP.RevocationReason) async throws {
+        guard let secret = secret(for: key.fingerprint) else { throw MailError.pgp("Kein privater Schlüssel vorhanden.") }
+        let updated = try await Task.detached(priority: .userInitiated) {
+            try PGP.revoke(secret, reason: reason)
+        }.value
+        store(updated, passphrase: secret.passphrase)
+    }
+
+    /// Looks the addresses up online and imports what is found. Returns address → source.
+    func discover(_ emails: [String]) async -> [String: KeyDiscovery.Source] {
+        var found: [String: KeyDiscovery.Source] = [:]
+        for email in emails {
+            guard let result = await KeyDiscovery.lookup(email: email),
+                  (try? importKeys(from: result.data, allowSecret: false)) != nil else { continue }
+            found[email] = result.source
+        }
+        return found
+    }
+
+    /// An own key that runs out within `days` (to warn in time).
+    func expiresSoon(_ key: PGPKeyInfo, days: Int = 30) -> Bool {
+        guard let expires = key.expires, !key.isExpired else { return false }
+        return expires.timeIntervalSinceNow < Double(days) * 86_400
     }
 
     private func store(_ key: PGPKeyInfo, passphrase: String) {

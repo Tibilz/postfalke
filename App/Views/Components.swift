@@ -88,6 +88,8 @@ struct UpdateStatusText: View {
     let lastUpdated: Date?
     let isLoading: Bool
     var detail: String?
+    var offline = false
+    var unreachable = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -106,6 +108,8 @@ struct UpdateStatusText: View {
     }
 
     private func title(now: Date) -> String {
+        if offline { return "Offline" }
+        if unreachable { return "Server nicht erreichbar" }
         if isLoading { return "Suche nach E-Mails …" }
         guard let lastUpdated else { return "" }
         let seconds = now.timeIntervalSince(lastUpdated)

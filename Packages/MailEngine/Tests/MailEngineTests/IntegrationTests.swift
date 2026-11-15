@@ -45,6 +45,15 @@ final class IntegrationTests: XCTestCase {
         XCTAssertEqual(headers[0].from.first?.name, "Jürgen")
         XCTAssertFalse(headers[0].isSeen)
 
+        // Incremental sync: nothing new above the newest UID, flags for the known range.
+        let highestUID = headers.map(\.uid).max()!
+        let nothingNew = try await imap.fetchHeaders(fromUID: highestUID + 1)
+        XCTAssertEqual(nothingNew.count, 0)
+        let fromSecond = try await imap.fetchHeaders(fromUID: 2)
+        XCTAssertEqual(Array(fromSecond.map(\.uid).sorted().prefix(2)), [2, 3] as [UInt32])
+        let flags = try await imap.fetchFlags(uids: 1...highestUID)
+        XCTAssertEqual(Set(flags.keys), Set(headers.map(\.uid)))
+
         let raw = try await imap.fetchMessage(uid: 2)
         let plain = MessageProcessor.process(raw: raw, context: PGPContext())
         XCTAssertEqual(plain.content.plain, "Inhalt 2 äöü\r\n")

@@ -8,6 +8,11 @@ struct SettingsView: View {
     @Environment(KeyStore.self) private var keys
     @Environment(ContactKeySync.self) private var contacts
     @AppStorage(BackgroundRefresh.notifyKey) private var notifyNewMail = false
+    @AppStorage(Outbox.undoDelayKey) private var undoDelay = 10.0
+    @AppStorage(MailStore.encryptDraftsKey) private var encryptDrafts = true
+    @AppStorage(MailStore.threadingKey) private var groupConversations = true
+    @AppStorage(ContactDirectory.useSystemContactsKey) private var useSystemContacts = false
+    @Environment(ContactDirectory.self) private var directory
     @State private var permissionDenied = false
     @AppStorage(BackgroundRefresh.lastRunKey) private var lastBackgroundRun = 0.0
 
@@ -47,6 +52,16 @@ struct SettingsView: View {
                     Text("Private Schlüssel und Passwörter liegen im Schlüsselbund dieses Geräts und werden nicht synchronisiert.")
                 }
                 Section {
+                    Toggle("iOS-Kontakte für Vorschläge", isOn: Binding(
+                        get: { useSystemContacts },
+                        set: { wanted in
+                            if wanted {
+                                Task { useSystemContacts = await directory.requestSystemContacts() }
+                            } else {
+                                useSystemContacts = false
+                                directory.reloadAddressBook()
+                            }
+                        }))
                     NavigationLink {
                         CardDAVSettingsView()
                     } label: {
@@ -57,9 +72,24 @@ struct SettingsView: View {
                         }
                     }
                 } header: {
-                    Text("Kontakte (CardDAV)")
+                    Text("Kontakte")
                 } footer: {
-                    Text("Liest die öffentlichen Schlüssel aus dem KEY-Feld deiner Kontakte, z. B. aus Nextcloud.")
+                    Text("Beim Schreiben schlägt Postfalke Adressen vor: Empfänger früherer E-Mails, Absender, deine CardDAV-Kontakte (inklusive Schlüsseln aus dem KEY-Feld) und auf Wunsch die iOS-Kontakte. Über ⊕ wählst du einzelne iOS-Kontakte auch ohne diese Freigabe.")
+                }
+                Section {
+                    Picker("Senden widerrufen", selection: $undoDelay) {
+                        Text("Aus").tag(0.0)
+                        Text("5 Sekunden").tag(5.0)
+                        Text("10 Sekunden").tag(10.0)
+                        Text("20 Sekunden").tag(20.0)
+                        Text("30 Sekunden").tag(30.0)
+                    }
+                    Toggle("Entwürfe verschlüsseln", isOn: $encryptDrafts)
+                    Toggle("Nach Konversation ordnen", isOn: $groupConversations)
+                } header: {
+                    Text("Verfassen")
+                } footer: {
+                    Text("Gesendete E-Mails warten so lange, bis du sie noch zurückholen kannst. Entwürfe werden mit deinem eigenen Schlüssel verschlüsselt, sofern du einen hast.")
                 }
                 Section {
                     Toggle("Mitteilung bei neuer Post", isOn: $notifyNewMail)
@@ -109,6 +139,9 @@ struct KeyListView: View {
     @State private var showFileImporter = false
     @State private var showBitwarden = false
     @State private var flow = KeyImportFlow()
+    @State private var showLookup = false
+    @State private var lookupAddress = ""
+    @State private var isLookingUp = false
 
     var body: some View {
         List {
@@ -137,6 +170,7 @@ struct KeyListView: View {
                 Menu {
                     Button { showGenerate = true } label: { Label("Neues Schlüsselpaar erzeugen", systemImage: "wand.and.stars") }
                     Button { showBitwarden = true } label: { Label("Aus Bitwarden importieren", systemImage: "shield.lefthalf.filled") }
+                    Button { showLookup = true } label: { Label("Online suchen …", systemImage: "magnifyingglass") }
                     Button { showFileImporter = true } label: { Label("Aus Datei importieren", systemImage: "doc") }
                     Button { flow.startFromClipboard(keys: keys) } label: {
                         Label("Aus Zwischenablage importieren", systemImage: "doc.on.clipboard")
@@ -152,6 +186,16 @@ struct KeyListView: View {
         .sheet(isPresented: $showBitwarden) {
             BitwardenImportView(flow: flow)
         }
+        .alert("Schlüssel online suchen", isPresented: $showLookup) {
+            TextField("name@example.org", text: $lookupAddress)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.emailAddress)
+            Button("Suchen") { Task { await lookUp() } }
+            Button("Abbrechen", role: .cancel) {}
+        } message: {
+            Text("Sucht im Web Key Directory des Anbieters und auf keys.openpgp.org. Dabei erfährt der jeweilige Server, nach welcher Adresse du suchst.")
+        }
+        .overlay { if isLookingUp { ProgressView("Suche …").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) } }
         .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item]) { result in
             if case .success(let url) = result { flow.start(url: url, keys: keys) }
         }
@@ -305,6 +349,19 @@ struct CardDAVSettingsView: View {
     }
 }
 
+extension KeyListView {
+    fileprivate func lookUp() async {
+        let address = lookupAddress.trimmingCharacters(in: .whitespaces)
+        guard address.contains("@") else { return }
+        isLookingUp = true
+        defer { isLookingUp = false }
+        let found = await keys.discover([address])
+        flow.notice = found[address].map { "Schlüssel für \(address) gefunden (\($0.rawValue)) und importiert. Vergleiche den Fingerabdruck, bevor du ihm vertraust." }
+            ?? "Für \(address) wurde online kein Schlüssel gefunden."
+        lookupAddress = ""
+    }
+}
+
 struct KeyRow: View {
     let key: PGPKeyInfo
 
@@ -334,6 +391,11 @@ struct KeyDetailView: View {
     @State private var confirmDelete = false
     @State private var confirmSecretExport = false
     @State private var secretExport: ExportFile?
+    @State private var showExpiry = false
+    @State private var confirmRevoke = false
+    @State private var isWorking = false
+    @State private var actionError: String?
+    @State private var notice: String?
 
     var body: some View {
         if let key = keys.key(fingerprint: fingerprint) {
@@ -376,6 +438,27 @@ struct KeyDetailView: View {
                         }
                     }
                 }
+                if key.isSecret {
+                    Section {
+                        Button {
+                            showExpiry = true
+                        } label: {
+                            Label("Ablaufdatum ändern …", systemImage: "calendar.badge.clock")
+                        }
+                        .disabled(key.revoked || isWorking)
+                        Button(role: .destructive) {
+                            confirmRevoke = true
+                        } label: {
+                            Label("Schlüssel widerrufen …", systemImage: "xmark.seal")
+                        }
+                        .disabled(key.revoked || isWorking)
+                        if let actionError { ErrorNotice(message: actionError) }
+                    } header: {
+                        Text("Verwalten")
+                    } footer: {
+                        Text("Nach einer Änderung kennen andere sie erst, wenn sie deinen öffentlichen Schlüssel neu erhalten. Postfalke hängt ihn jeder E-Mail im Autocrypt-Header an; du kannst ihn auch oben teilen.")
+                    }
+                }
                 Section {
                     Button("Schlüssel löschen", role: .destructive) { confirmDelete = true }
                 }
@@ -390,6 +473,23 @@ struct KeyDetailView: View {
                     keys.delete(key)
                     dismiss()
                 }
+            }
+            .sheet(isPresented: $showExpiry) {
+                ExpirySheet(current: key.expires) { expires in
+                    Task { await run { try await keys.setExpiry(key, expires: expires) }
+                        notice = expires.map { "Gültig bis \($0.formatted(date: .long, time: .omitted))." } ?? "Der Schlüssel läuft nicht mehr ab." }
+                }
+            }
+            .confirmationDialog("Ein widerrufener Schlüssel kann nicht mehr zum Verschlüsseln an dich verwendet werden. Das lässt sich nicht rückgängig machen.",
+                                isPresented: $confirmRevoke, titleVisibility: .visible) {
+                Button("Ersetzt durch neuen Schlüssel", role: .destructive) { revoke(key, .superseded) }
+                Button("Nicht mehr verwendet", role: .destructive) { revoke(key, .retired) }
+                Button("Schlüssel ist kompromittiert", role: .destructive) { revoke(key, .compromised) }
+            }
+            .alert("Schlüssel geändert", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text((notice ?? "") + "\n\nTeile deinen öffentlichen Schlüssel erneut, damit andere die Änderung erhalten.")
             }
             .confirmationDialog("Der private Schlüssel erlaubt das Lesen all deiner verschlüsselten Nachrichten. Bewahre die Sicherung an einem sicheren Ort auf.",
                                 isPresented: $confirmSecretExport, titleVisibility: .visible) {
@@ -439,6 +539,63 @@ struct ExportFile: Transferable, Identifiable {
     }
 }
 
+extension KeyDetailView {
+    private func run(_ action: () async throws -> Void) async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            try await action()
+            actionError = nil
+        } catch {
+            actionError = MailStore.describe(error)
+        }
+    }
+
+    private func revoke(_ key: PGPKeyInfo, _ reason: PGP.RevocationReason) {
+        Task {
+            await run { try await keys.revoke(key, reason: reason) }
+            if actionError == nil { notice = "Der Schlüssel ist widerrufen." }
+        }
+    }
+}
+
+/// Picks a new expiry date or "never".
+private struct ExpirySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let current: Date?
+    var onSave: (Date?) -> Void
+    @State private var never = false
+    @State private var date = Calendar.current.date(byAdding: .year, value: 2, to: .now) ?? .now
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Toggle("Läuft nie ab", isOn: $never)
+                if !never {
+                    DatePicker("Gültig bis", selection: $date, in: Date().addingTimeInterval(86_400)...,
+                               displayedComponents: .date)
+                        .datePickerStyle(.graphical)
+                }
+            }
+            .navigationTitle("Ablaufdatum")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Abbrechen") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Sichern") {
+                        onSave(never ? nil : date)
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                if let current, current > .now { date = current }
+                never = current == nil
+            }
+        }
+    }
+}
+
 struct KeyGenerateView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AccountStore.self) private var accounts
@@ -447,6 +604,7 @@ struct KeyGenerateView: View {
     @State private var name = ""
     @State private var email = ""
     @State private var passphrase = ""
+    @State private var validityYears = 3
     @State private var repeatPassphrase = ""
     @State private var isWorking = false
     @State private var error: String?
@@ -476,6 +634,13 @@ struct KeyGenerateView: View {
                 Section {
                     SecureField("Passphrase (empfohlen)", text: $passphrase)
                     SecureField("Passphrase wiederholen", text: $repeatPassphrase)
+                    Picker("Gültigkeit", selection: $validityYears) {
+                        Text("1 Jahr").tag(1)
+                        Text("2 Jahre").tag(2)
+                        Text("3 Jahre").tag(3)
+                        Text("5 Jahre").tag(5)
+                        Text("Unbegrenzt").tag(0)
+                    }
                     if passphrase != repeatPassphrase, !repeatPassphrase.isEmpty {
                         Text("Die Passphrasen stimmen nicht überein.").font(.footnote).foregroundStyle(.red)
                     }
@@ -512,9 +677,10 @@ struct KeyGenerateView: View {
         isWorking = true
         defer { isWorking = false }
         do {
+            let expires = validityYears == 0 ? nil : Calendar.current.date(byAdding: .year, value: validityYears, to: .now)
             try await keys.generate(name: name.trimmingCharacters(in: .whitespaces),
                                     email: email.trimmingCharacters(in: .whitespaces),
-                                    passphrase: passphrase)
+                                    passphrase: passphrase, expires: expires)
             dismiss()
         } catch {
             self.error = MailStore.describe(error)

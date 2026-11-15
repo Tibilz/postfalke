@@ -82,6 +82,8 @@ final class MailboxState {
     var isLoading = false
     var hasLoaded = false
     var error: String?
+    /// The last refresh could not reach the server (cached mail is shown).
+    var isUnreachable = false
     var lastUpdated: Date?
 
     var canLoadMore: Bool { hasLoaded && lowestSequence > 1 }
@@ -98,12 +100,20 @@ final class MailStore {
     private(set) var folders: [UUID: [MailFolder]] = [:]
     private(set) var folderErrors: [UUID: String] = [:]
     private var mailboxes: [FolderKey: MailboxState] = [:]
+    private var pending: [PendingAction] = []
     /// Subjects recovered from encrypted mail, so the list need not show "...".
     private var protectedSubjects: [String: String] = [:]
     private static let subjectsFile = "protected-subjects.json"
 
+    /// Set by the app; used to decide what may be downloaded in advance.
+    var network: NetworkMonitor?
+    /// Set by the app; learns sender addresses for suggestions.
+    var directory: ContactDirectory?
+
     init(accounts: AccountStore) {
         self.accounts = accounts
+        previews = (try? Data(contentsOf: Self.previewsURL)).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+        pending = Storage.load([PendingAction].self, from: Self.pendingFile) ?? []
         protectedSubjects = Storage.load([String: String].self, from: Self.subjectsFile) ?? [:]
         for account in accounts.accounts {
             folders[account.id] = Storage.load([MailFolder].self, from: "folders-\(account.id.uuidString).json")
@@ -112,7 +122,7 @@ final class MailStore {
 
     // MARK: Sessions
 
-    private func session(_ accountID: UUID) throws -> MailSession {
+    func session(_ accountID: UUID) throws -> MailSession {
         if let existing = sessions[accountID] { return existing }
         guard let account = accounts.account(accountID) else {
             throw MailError.connection("Das Konto existiert nicht mehr.")
@@ -136,6 +146,9 @@ final class MailStore {
         mailboxes = mailboxes.filter { $0.key.accountID != accountID }
         try? FileManager.default.removeItem(at: Storage.url("folders-\(accountID.uuidString).json"))
         try? FileManager.default.removeItem(at: Self.cacheDirectory.appendingPathComponent(accountID.uuidString))
+        try? FileManager.default.removeItem(at: Self.mailboxCacheDirectory.appendingPathComponent(accountID.uuidString))
+        pending.removeAll { $0.folder.accountID == accountID }
+        Storage.save(pending, to: Self.pendingFile)
     }
 
     static func describe(_ error: Error) -> String {
@@ -189,8 +202,50 @@ final class MailStore {
     func mailbox(_ key: FolderKey) -> MailboxState {
         if let state = mailboxes[key] { return state }
         let state = MailboxState()
+        // Show what was there last time at once, also without network.
+        if let data = try? Data(contentsOf: snapshotURL(key)),
+           let snapshot = try? JSONDecoder().decode(MailboxSnapshot.self, from: data) {
+            state.headers = snapshot.headers
+            state.exists = snapshot.exists
+            state.uidValidity = snapshot.uidValidity
+            state.lowestSequence = snapshot.lowestSequence
+            state.lastUpdated = snapshot.lastUpdated
+            state.hasLoaded = true
+        }
         mailboxes[key] = state
         return state
+    }
+
+    private struct MailboxSnapshot: Codable {
+        var headers: [MessageHeader]
+        var exists: Int
+        var uidValidity: UInt32
+        var lowestSequence: Int
+        var lastUpdated: Date?
+    }
+
+    private struct SyncResult: Sendable {
+        var status: MailboxStatus
+        var headers: [MessageHeader]
+    }
+
+    private func snapshotURL(_ key: FolderKey) -> URL {
+        let folderHash = SHA256.hash(data: Data(key.path.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
+        let directory = Self.mailboxCacheDirectory.appendingPathComponent(key.accountID.uuidString)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("\(folderHash).json")
+    }
+
+    private static var mailboxCacheDirectory: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("mailboxes")
+    }
+
+    private func persistMailbox(_ key: FolderKey) {
+        guard !key.isOutbox, let state = mailboxes[key] else { return }
+        let snapshot = MailboxSnapshot(headers: state.headers, exists: state.exists, uidValidity: state.uidValidity,
+                                       lowestSequence: state.lowestSequence, lastUpdated: state.lastUpdated)
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        try? data.write(to: snapshotURL(key), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
     /// Reloads the newest messages (as many as are currently shown, at least one page).
@@ -199,27 +254,53 @@ final class MailStore {
         guard !state.isLoading else { return }
         state.isLoading = true
         defer { state.isLoading = false }
-        let wanted = min(max(Self.pageSize, state.headers.count), 400)
+        // Changes made without network go to the server first.
+        await replayPending(key.accountID)
+        let known = state.headers
+        let knownValidity = state.uidValidity
+        let wanted = min(max(Self.pageSize, known.count), 400)
         do {
-            let result = try await session(key.accountID).perform { imap -> (MailboxStatus, [MessageHeader], Int) in
+            let result = try await session(key.accountID).perform { imap -> SyncResult in
                 let status = try await imap.select(key.path, force: true)
-                guard status.exists > 0 else { return (status, [], 1) }
+                guard status.exists > 0 else { return SyncResult(status: status, headers: []) }
+                // Same UIDs as before: fetch only new mail and the current flags of the known messages.
+                if status.uidValidity == knownValidity,
+                   let newest = known.map(\.uid).max(), let oldest = known.map(\.uid).min() {
+                    let fresh = try await imap.fetchHeaders(fromUID: newest + 1)
+                    let flags = try await imap.fetchFlags(uids: oldest...newest)
+                    let kept = known.compactMap { header -> MessageHeader? in
+                        guard let current = flags[header.uid] else { return nil }   // deleted on the server
+                        var copy = header
+                        copy.flags = current
+                        return copy
+                    }
+                    return SyncResult(status: status, headers: kept + fresh)
+                }
                 let low = max(1, status.exists - wanted + 1)
-                return (status, try await imap.fetchHeaders(sequence: low...status.exists), low)
+                return SyncResult(status: status, headers: try await imap.fetchHeaders(sequence: low...status.exists))
             }
-            state.exists = result.0.exists
-            state.uidValidity = result.0.uidValidity
-            state.headers = result.1.sorted { $0.uid > $1.uid }
-            state.lowestSequence = result.2
+            state.exists = result.status.exists
+            state.uidValidity = result.status.uidValidity
+            state.headers = result.headers.sorted { $0.uid > $1.uid }
+            state.lowestSequence = max(1, result.status.exists - state.headers.count + 1)
             state.hasLoaded = true
             state.error = nil
+            state.isUnreachable = false
             state.lastUpdated = Date()
+            persistMailbox(key)
             await loadPreviews(key, for: state.headers)
+            if folder(key)?.role == .inbox || key.path.uppercased() == "INBOX" {
+                directory?.noteSeen(state.headers)
+            }
+            if mailboxes[key]?.headers.isEmpty == false, folder(key)?.role == .inbox || key.path.uppercased() == "INBOX" {
+                Task { await prefetchBodies(key) }
+            }
             if key.path.uppercased() == "INBOX" {
                 noteSeen(key.accountID, uidValidity: state.uidValidity, headers: state.headers)
             }
         } catch {
             state.error = Self.describe(error)
+            state.isUnreachable = Outbox.isTemporary(error)
         }
     }
 
@@ -237,6 +318,7 @@ final class MailStore {
             let known = Set(state.headers.map(\.uid))
             state.headers = (state.headers + older.filter { !known.contains($0.uid) }).sorted { $0.uid > $1.uid }
             state.lowestSequence = low
+            persistMailbox(key)
             await loadPreviews(key, for: older)
         } catch {
             state.error = Self.describe(error)
@@ -245,6 +327,21 @@ final class MailStore {
 
     /// Results of the last server search per folder, so a hit can be opened.
     private var searchHits: [FolderKey: [MessageHeader]] = [:]
+
+    static let threadingKey = "groupByConversation"
+
+    static var groupsConversations: Bool {
+        UserDefaults.standard.object(forKey: threadingKey) == nil || UserDefaults.standard.bool(forKey: threadingKey)
+    }
+
+    /// The conversation containing a message (a single-message thread when grouping is off).
+    func thread(_ key: FolderKey, containing uid: UInt32) -> MessageThread? {
+        let headers = mailbox(key).headers
+        guard Self.groupsConversations, folder(key)?.role != .drafts else {
+            return headers.first { $0.uid == uid }.map { MessageThread(messages: [$0]) }
+        }
+        return Threading.group(headers).first { $0.messages.contains { $0.uid == uid } }
+    }
 
     /// A message of the folder list or of the last search.
     func header(_ key: FolderKey, uid: UInt32) -> MessageHeader? {
@@ -288,6 +385,9 @@ final class MailStore {
                 body: body, contentType: header.contentType, params: header.contentTypeParams,
                 transferEncoding: header.transferEncoding) ?? ""
         }
+        if let data = try? JSONEncoder().encode(previews) {
+            try? data.write(to: Self.previewsURL, options: .atomic)
+        }
     }
 
     // MARK: Protected subjects
@@ -311,6 +411,7 @@ final class MailStore {
     // MARK: New mail
 
     struct NewMail: Sendable {
+        var accountID: UUID
         var account: String
         var header: MessageHeader
     }
@@ -338,7 +439,7 @@ final class MailStore {
             if let stored, stored["validity"] == Int(state.uidValidity), let known = stored["uid"] {
                 found += state.headers
                     .filter { Int($0.uid) > known && !$0.isSeen }
-                    .map { NewMail(account: account.email, header: $0) }
+                    .map { NewMail(accountID: account.id, account: account.email, header: $0) }
             }
         }
         return found
@@ -392,13 +493,8 @@ final class MailStore {
     }
 
     private func setFlag(_ key: FolderKey, uid: UInt32, flag: String, enabled: Bool) async {
-        do {
-            try await session(key.accountID).perform(folder: key.path) {
-                try await $0.setFlag(flag, on: [uid], enabled: enabled)
-            }
-        } catch {
-            mailbox(key).error = Self.describe(error)
-        }
+        persistMailbox(key)
+        await runOrQueue(PendingAction(folder: key, uid: uid, kind: .flag(name: flag, enabled: enabled)))
     }
 
     private func removeLocally(_ key: FolderKey, header: MessageHeader) {
@@ -412,14 +508,7 @@ final class MailStore {
     func move(_ key: FolderKey, header: MessageHeader, to destination: MailFolder) async {
         guard destination.path != key.path else { return }
         removeLocally(key, header: header)
-        do {
-            try await session(key.accountID).perform(folder: key.path) {
-                try await $0.move(uids: [header.uid], to: destination.path)
-            }
-        } catch {
-            mailbox(key).error = Self.describe(error)
-            await refresh(key)
-        }
+        await runOrQueue(PendingAction(folder: key, uid: header.uid, kind: .move(to: destination.path)))
     }
 
     /// Moves to the trash; inside the trash (or without one) deletes permanently.
@@ -429,11 +518,88 @@ final class MailStore {
             return
         }
         removeLocally(key, header: header)
+        await runOrQueue(PendingAction(folder: key, uid: header.uid, kind: .expunge))
+    }
+
+    // MARK: Changes made without network
+
+    struct PendingAction: Codable, Equatable {
+        enum Kind: Codable, Equatable {
+            case flag(name: String, enabled: Bool)
+            case move(to: String)
+            case expunge
+        }
+        var folder: FolderKey
+        var uid: UInt32
+        var kind: Kind
+    }
+
+    private static let pendingFile = "pending-actions.json"
+    private static var previewsURL: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("previews.json")
+    }
+
+    /// Number of changes waiting for the network.
+    var pendingCount: Int { pending.count }
+
+    private func perform(_ action: PendingAction) async throws {
+        try await session(action.folder.accountID).perform(folder: action.folder.path) { imap in
+            switch action.kind {
+            case .flag(let name, let enabled): try await imap.setFlag(name, on: [action.uid], enabled: enabled)
+            case .move(let target): try await imap.move(uids: [action.uid], to: target)
+            case .expunge: try await imap.expunge(uids: [action.uid])
+            }
+        }
+    }
+
+    /// Runs the change now; without network it is remembered and done later.
+    /// The list already shows the result either way.
+    private func runOrQueue(_ action: PendingAction) async {
+        guard pending.isEmpty || !pending.contains(where: { $0.folder.accountID == action.folder.accountID }) else {
+            // Keep the order: earlier offline changes of this account come first.
+            pending.append(action)
+            Storage.save(pending, to: Self.pendingFile)
+            await replayPending(action.folder.accountID)
+            return
+        }
         do {
-            try await session(key.accountID).perform(folder: key.path) { try await $0.expunge(uids: [header.uid]) }
+            try await perform(action)
+        } catch where Outbox.isTemporary(error) {
+            pending.append(action)
+            Storage.save(pending, to: Self.pendingFile)
         } catch {
-            mailbox(key).error = Self.describe(error)
-            await refresh(key)
+            mailbox(action.folder).error = Self.describe(error)
+            await refresh(action.folder)
+        }
+    }
+
+    /// Sends remembered changes of an account to the server, in order.
+    func replayPending(_ accountID: UUID) async {
+        while let action = pending.first(where: { $0.folder.accountID == accountID }) {
+            do {
+                try await perform(action)
+            } catch where Outbox.isTemporary(error) {
+                return   // still offline
+            } catch {
+                // The server refuses (message gone, folder renamed): drop it, a refresh shows the truth.
+            }
+            if let index = pending.firstIndex(of: action) { pending.remove(at: index) }
+            Storage.save(pending, to: Self.pendingFile)
+        }
+    }
+
+    func replayAllPending() async {
+        for account in accounts.accounts { await replayPending(account.id) }
+    }
+
+    /// Downloads the newest messages of the inbox for reading without network (not on metered networks).
+    private func prefetchBodies(_ key: FolderKey) async {
+        guard network?.isOnline == true, network?.isExpensive == false else { return }
+        let candidates = mailbox(key).headers.prefix(20).filter {
+            $0.size < 512_000 && !FileManager.default.fileExists(atPath: cacheURL(key, uid: $0.uid).path)
+        }
+        for header in candidates {
+            _ = try? await rawMessage(key, uid: header.uid)
         }
     }
 

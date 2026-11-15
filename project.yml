@@ -28,7 +28,12 @@ targets:
           - fetch
         BGTaskSchedulerPermittedIdentifiers:
           - de.postfalke.app.refresh
+        NSContactsUsageDescription: Postfalke schlägt beim Schreiben Adressen aus deinen Kontakten vor.
         NSLocalNetworkUsageDescription: Postfalke verbindet sich mit Mail- und Kontaktservern in deinem lokalen Netzwerk, z. B. einer Nextcloud zu Hause.
+        # postfalke://compose?to=…&subject=… (e.g. from Shortcuts); mailto: works once Postfalke may be the default mail app.
+        CFBundleURLTypes:
+          - CFBundleURLName: de.postfalke.compose
+            CFBundleURLSchemes: [postfalke, mailto]
         LSApplicationQueriesSchemes:
           - bitwarden
         # "Open in Postfalke" for key files from Files, Bitwarden, AirDrop …

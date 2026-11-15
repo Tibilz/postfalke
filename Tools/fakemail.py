@@ -7,6 +7,9 @@ if os.environ.get("FAKEMAIL_TLS_CERT"):
     TLS = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     TLS.load_cert_chain(os.environ["FAKEMAIL_TLS_CERT"], os.environ["FAKEMAIL_TLS_KEY"])
 
+# Services switched off by tests via POST /control/<imap|smtp>-<down|up> on the CardDAV port.
+DOWN = set()
+
 class TLSMixin:
     def setup(self):
         if TLS:
@@ -43,6 +46,7 @@ class IMAP(TLSMixin, socketserver.StreamRequestHandler):
     def send(self, s):
         self.wfile.write(s if isinstance(s, bytes) else s.encode()); self.wfile.flush()
     def handle(self):
+        if "imap" in DOWN: return   # connection closes at once: "server unreachable"
         self.send("* OK fake IMAP ready\r\n")
         sel, authed = None, False
         while True:
@@ -85,8 +89,13 @@ class IMAP(TLSMixin, socketserver.StreamRequestHandler):
                 ok()
             elif cmd in ("FETCH", "UID FETCH"):
                 msgs = folders[sel]; chosen = []
+                top = max([m["uid"] for m in msgs] or [0]) if cmd.startswith("UID") else len(msgs)
                 for part in args[0].decode().split(","):
-                    a, _, b = part.partition(":"); a = int(a); b = int(b) if b else a
+                    a, _, b = part.partition(":")
+                    # "*" is the highest number in use; like real servers, "5:*" with 5 > max still matches max.
+                    a = top if a == "*" else int(a)
+                    b = (top if b == "*" else int(b)) if b else a
+                    a, b = min(a, b), max(a, b)
                     for n, m in enumerate(msgs, 1):
                         key = m["uid"] if cmd.startswith("UID") else n
                         if a <= key <= b: chosen.append((n, m))
@@ -125,6 +134,7 @@ class IMAP(TLSMixin, socketserver.StreamRequestHandler):
 
 class SMTP(TLSMixin, socketserver.StreamRequestHandler):
     def handle(self):
+        if "smtp" in DOWN: return
         w = lambda s: (self.wfile.write(s.encode()), self.wfile.flush())
         w("220 fake ESMTP\r\n"); authed = False; rcpts = []
         while True:
@@ -170,6 +180,11 @@ class DAV(TLSMixin, http.server.BaseHTTPRequestHandler):
         self.reply(401, extra=[("WWW-Authenticate", 'Basic realm="dav"')]); return False
     def body(self):
         return self.rfile.read(int(self.headers.get("Content-Length") or 0))
+    def do_POST(self):
+        m = re.match(r"^/control/(imap|smtp)-(down|up)$", self.path)
+        if not m: return self.reply(404)
+        (DOWN.add if m.group(2) == "down" else DOWN.discard)(m.group(1))
+        self.reply(200, "ok", "text/plain")
     def do_PUT(self):
         data = self.body()
         if self.authed(): cards[self.path] = data.decode(); self.reply(201)

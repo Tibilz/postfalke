@@ -14,9 +14,11 @@ enum BackgroundRefresh {
     private static let log = Logger(subsystem: "de.postfalke.app", category: "background")
 
     /// Asks iOS for the next wake-up. Call when the app goes to the background.
-    static func schedule() {
+    static func schedule(earliest due: Date? = nil) {
         let request = BGAppRefreshTaskRequest(identifier: taskID)
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
+        // A planned message may need an earlier wake-up than the regular mail check.
+        let regular = Date(timeIntervalSinceNow: 15 * 60)
+        request.earliestBeginDate = due.map { min(max($0, Date(timeIntervalSinceNow: 60)), regular) } ?? regular
         do {
             try BGTaskScheduler.shared.submit(request)
         } catch {
@@ -25,8 +27,9 @@ enum BackgroundRefresh {
     }
 
     @MainActor
-    static func run(mail: MailStore) async {
-        schedule()
+    static func run(mail: MailStore, outbox: Outbox) async {
+        await outbox.process()
+        schedule(earliest: outbox.nextDue)
         guard !mail.accounts.accounts.isEmpty else { return }
         let fresh = await mail.checkNewMail()
         log.info("background refresh found \(fresh.count) new message(s)")
@@ -34,6 +37,7 @@ enum BackgroundRefresh {
         #if DEBUG
         UserDefaults.standard.set(fresh.map(\.header.subject), forKey: "debugLastBackgroundSubjects")
         #endif
+        await mail.updateBadge()
         guard UserDefaults.standard.bool(forKey: notifyKey) else { return }
         for item in fresh.prefix(8) {
             await notify(item, mail: mail)
@@ -55,6 +59,8 @@ enum BackgroundRefresh {
         content.subtitle = mail.accounts.accounts.count > 1 ? item.account : ""
         content.sound = .default
         content.threadIdentifier = item.account
+        content.categoryIdentifier = NotificationHandler.category
+        content.userInfo = ["account": item.accountID.uuidString, "folder": "INBOX", "uid": NSNumber(value: item.header.uid)]
         let request = UNNotificationRequest(identifier: "\(item.account)-\(item.header.uid)", content: content, trigger: nil)
         try? await UNUserNotificationCenter.current().add(request)
     }

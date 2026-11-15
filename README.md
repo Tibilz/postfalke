@@ -15,6 +15,13 @@ The app's user interface is in German.
 - Keys from contacts: reads the `KEY` field of vCards on a CardDAV server (e.g. Nextcloud) and assigns the key to every address on the card
 - Private key import from Bitwarden: via clipboard (secure note) or "Share › Postfalke" (`.asc`/`.gpg` attachment)
 - Background check for new mail with notifications (iOS decides when it runs)
+- Undo send (configurable delay), schedule send ("Später senden" on a long press of the send button), and an outbox that retries when the network is back
+- Drafts: saved locally while typing, stored in the server's Drafts folder (encrypted to your own key), reopened for editing
+- Offline: folders and messages are kept on the device, only changes are synced, flag/move/delete work offline and are replayed later; the newest inbox messages are downloaded on Wi-Fi
+- Conversations (by Message-ID references, with a subject fallback for replies)
+- Recipients as chips with suggestions from earlier mail, CardDAV contacts and (optionally) iOS contacts; ⊕ picks from the iOS contacts without permission
+- OpenPGP key lookup on request (Web Key Directory, keys.openpgp.org), key expiry (new keys: 3 years) and revocation, expiry warnings
+- `postfalke://compose?to=…&subject=…&body=…` links (e.g. from Shortcuts), app icon badge with unread count, "mark as read"/"delete" actions on notifications
 - Self-signed certificates (e.g. a home Nextcloud): the app shows the SHA-256 fingerprint and, once confirmed, trusts exactly that certificate for IMAP, SMTP or CardDAV
 - Passwords, private keys and passphrases are stored in the iOS keychain (this device only)
 
@@ -80,6 +87,9 @@ or look at the certificate in a browser.
 
 - Password or app-password login only (no OAuth for Gmail/Outlook)
 - No push: new mail is only checked in the background when iOS grants the app time (never in the simulator; the launch argument `-simulateBackgroundRefresh` runs the same code there)
+- Scheduled messages are sent by the app itself: if it is not running at that time, they go out when iOS wakes it in the background or when you open it
+- `mailto:` links open Postfalke only once Apple grants the default-mail-app entitlement (`com.apple.developer.mail-client`, on request); until then use `postfalke://` links
+- No share extension yet (it needs an App Group, which free developer accounts may not be able to sign)
 - Bitwarden gives other iOS apps no direct access to the vault; import goes through the clipboard or the share sheet
 - CardDAV is read-only; your own keys are not written to contacts
 - No drafts, no HTML composing, no S/MIME

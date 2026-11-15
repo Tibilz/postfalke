@@ -14,6 +14,8 @@ final class ContactKeySync {
     }
 
     private(set) var settings: Settings
+    /// Receives the contacts for address suggestions.
+    var directory: ContactDirectory?
     private(set) var isSyncing = false
     private(set) var lastSync: Date?
     private(set) var lastResult: String?
@@ -75,6 +77,9 @@ final class ContactKeySync {
                                    trustedCertificate: settings.trustedCertificate)
         do {
             let contacts = try await client.fetchContacts()
+            Storage.save(contacts.filter { !$0.emails.isEmpty }.map { VCardContact(name: $0.name, emails: $0.emails) },
+                         to: ContactDirectory.cardDAVFile)
+            directory?.reloadAddressBook()
             var bindings: [String: String] = [:]
             var imported = Set<String>()
             for contact in contacts where !contact.keys.isEmpty && !contact.emails.isEmpty {

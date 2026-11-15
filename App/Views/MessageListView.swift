@@ -5,6 +5,7 @@ struct MessageListView: View {
     @Environment(AccountStore.self) private var accounts
     @Environment(MailStore.self) private var mail
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(NetworkMonitor.self) private var network
     let folder: FolderKey
     @Binding var selection: UInt32?
     var compose: (ComposeDraft) -> Void
@@ -14,6 +15,7 @@ struct MessageListView: View {
     @State private var searchError: String?
     @State private var isSearching = false
     @State private var unreadOnly = false
+    @AppStorage(MailStore.threadingKey) private var groupConversations = true
 
     private var state: MailboxState { mail.mailbox(folder) }
     private var isOutgoing: Bool {
@@ -26,24 +28,38 @@ struct MessageListView: View {
         return unreadOnly ? all.filter { !$0.isSeen } : all
     }
 
+    /// Rows: conversations (newest message represents it), or single messages.
+    private var rows: [MessageThread] {
+        let isDrafts = mail.folder(folder)?.role == .drafts
+        guard groupConversations, searchResults == nil, !isDrafts else {
+            return shown.map { MessageThread(messages: [$0]) }
+        }
+        let threads = Threading.group(state.headers)
+        return unreadOnly ? threads.filter { $0.unreadCount > 0 } : threads
+    }
+
     var body: some View {
         let state = state
         List(selection: $selection) {
-            if let error = searchError ?? state.error {
+            if let error = searchError ?? (showsQuietOffline ? nil : state.error), network.isOnline {
                 ErrorNotice(message: error)
                     .listRowSeparator(.hidden)
             }
-            ForEach(shown) { header in
+            ForEach(rows) { thread in
+                let header = thread.latest
                 MessageRow(header: header,
                            subject: mail.subject(folder, header: header),
                            preview: mail.preview(folder, header: header),
-                           showRecipient: isOutgoing)
+                           showRecipient: isOutgoing,
+                           threadCount: thread.messages.count,
+                           threadUnread: thread.unreadCount > 0,
+                           threadFlagged: thread.isFlagged)
                     .tag(header.uid)
                     .listRowInsets(EdgeInsets(top: 10, leading: 6, bottom: 10, trailing: 16))
                     .alignmentGuide(.listRowSeparatorLeading) { _ in 26 }
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
-                            Task { await remove(header) }
+                            Task { await remove(thread) }
                         } label: {
                             Label("Löschen", systemImage: "trash")
                         }
@@ -56,11 +72,20 @@ struct MessageListView: View {
                         .tint(.orange)
                     }
                     .swipeActions(edge: .leading) {
+                        let unread = thread.unreadCount > 0
                         Button {
-                            Task { await mail.setSeen(folder, header: header, seen: !header.isSeen) }
+                            Task {
+                                if unread {
+                                    for message in thread.messages where !message.isSeen {
+                                        await mail.setSeen(folder, header: message, seen: true)
+                                    }
+                                } else {
+                                    await mail.setSeen(folder, header: header, seen: false)
+                                }
+                            }
                         } label: {
-                            Label(header.isSeen ? "Ungelesen" : "Gelesen",
-                                  systemImage: header.isSeen ? "envelope.badge" : "envelope.open")
+                            Label(unread ? "Gelesen" : "Ungelesen",
+                                  systemImage: unread ? "envelope.open" : "envelope.badge")
                         }
                         .tint(.blue)
                     }
@@ -78,7 +103,7 @@ struct MessageListView: View {
                         }
                         Divider()
                         Button(role: .destructive) {
-                            Task { await remove(header) }
+                            Task { await remove(thread) }
                         } label: {
                             Label("Löschen", systemImage: "trash")
                         }
@@ -103,11 +128,11 @@ struct MessageListView: View {
         .overlay {
             if isSearching || (state.isLoading && !state.hasLoaded) {
                 ProgressView()
-            } else if shown.isEmpty, searchResults != nil {
+            } else if rows.isEmpty, searchResults != nil {
                 ContentUnavailableView.search(text: query)
-            } else if shown.isEmpty, unreadOnly {
+            } else if rows.isEmpty, unreadOnly {
                 ContentUnavailableView("Keine ungelesenen E-Mails", systemImage: "envelope.open")
-            } else if shown.isEmpty, state.hasLoaded {
+            } else if rows.isEmpty, state.hasLoaded {
                 ContentUnavailableView("Keine E-Mails", systemImage: "tray")
             }
         }
@@ -129,6 +154,9 @@ struct MessageListView: View {
                 try? await Task.sleep(for: .seconds(90))
             }
         }
+        .onChange(of: network.isOnline) {
+            if network.isOnline { Task { await mail.refresh(folder) } }
+        }
         .onChange(of: scenePhase) {
             // Coming back to the app: look for new mail.
             if scenePhase == .active { Task { await mail.refresh(folder) } }
@@ -144,7 +172,8 @@ struct MessageListView: View {
             }
             ToolbarItem(placement: .status) {
                 UpdateStatusText(lastUpdated: state.lastUpdated, isLoading: state.isLoading && state.hasLoaded,
-                                 detail: statusDetail)
+                                 detail: showsQuietOffline ? "Gespeicherte E-Mails" : statusDetail,
+                                 offline: !network.isOnline, unreachable: network.isOnline && showsQuietOffline)
             }
             ToolbarItem(placement: .bottomBar) {
                 Button {
@@ -156,16 +185,23 @@ struct MessageListView: View {
         }
     }
 
+    /// No network, or the server cannot be reached while cached mail is shown.
+    private var showsQuietOffline: Bool {
+        !network.isOnline || (state.isUnreachable && state.hasLoaded && !state.headers.isEmpty)
+    }
+
     private var statusDetail: String? {
         if unreadOnly { return "Gefiltert: Ungelesen" }
         let unread = state.headers.filter { !$0.isSeen }.count
         return unread > 0 ? "\(unread) ungelesen" : nil
     }
 
-    private func remove(_ header: MessageHeader) async {
-        if selection == header.uid { selection = nil }
-        searchResults?.removeAll { $0.uid == header.uid }
-        await mail.delete(folder, header: header)
+    /// Deletes a whole conversation (or the single message).
+    private func remove(_ thread: MessageThread) async {
+        let uids = Set(thread.messages.map(\.uid))
+        if let selected = selection, uids.contains(selected) { selection = nil }
+        searchResults?.removeAll { uids.contains($0.uid) }
+        for message in thread.messages { await mail.delete(folder, header: message) }
     }
 
     private func search() async {
@@ -187,6 +223,12 @@ struct MessageRow: View {
     var subject: String
     var preview: String?
     var showRecipient = false
+    var threadCount = 1
+    var threadUnread = false
+    var threadFlagged = false
+
+    private var isUnread: Bool { !header.isSeen || threadUnread }
+    private var isFlagged: Bool { header.isFlagged || threadFlagged }
 
     private var people: String {
         let list = showRecipient ? header.to : header.from
@@ -219,12 +261,15 @@ struct MessageRow: View {
             // Unread dot and flag, in their own column left of the text.
             VStack(spacing: 6) {
                 Circle()
-                    .fill(header.isSeen ? Color.clear : Color.accentColor)
+                    .fill(isUnread ? Color.accentColor : Color.clear)
                     .frame(width: 10, height: 10)
-                if header.isFlagged {
+                    .accessibilityHidden(!isUnread)
+                    .accessibilityLabel("Ungelesen")
+                if isFlagged {
                     Image(systemName: "flag.fill")
                         .font(.system(size: 10))
                         .foregroundStyle(.orange)
+                        .accessibilityLabel("Markiert")
                 }
             }
             .frame(width: 20)
@@ -239,6 +284,15 @@ struct MessageRow: View {
                         Image(systemName: "arrowshape.turn.up.left.fill")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                    }
+                    if threadCount > 1 {
+                        Text("\(threadCount)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(Color(.tertiarySystemFill), in: Capsule())
+                            .accessibilityLabel("\(threadCount) E-Mails")
                     }
                     Spacer(minLength: 8)
                     Text(Self.shortDate(header.sortDate))

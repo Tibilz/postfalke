@@ -63,6 +63,15 @@ final class ProviderAndPreviewTests: XCTestCase {
                        "Grüße aus München, bis bald")
     }
 
+    func testReplyAttributionIsSkipped() {
+        let body = "Klingt gut!\r\n\r\nAm 15. November 2026 um 14:57 schrieb Tina Tester:\r\n> Erste Nachricht\r\n"
+        XCTAssertEqual(preview(body, "text/plain"), "Klingt gut!")
+        let english = "\r\nOn Mon, Nov 16, 2026 at 9:00 AM Bob <b@x> wrote:\r\n> quoted\r\nSure."
+        XCTAssertEqual(preview(english, "text/plain"), "Sure.")
+        // A colon at the end of ordinary text stays.
+        XCTAssertEqual(preview("Einkaufsliste:\r\nBrot", "text/plain"), "Einkaufsliste: Brot")
+    }
+
     func testMultipartPrefersPlainAndSurvivesTruncation() {
         let plain = Data("Hallo Welt, das ist die Vorschau mit Umlauten äöü".utf8).base64EncodedString()
         // Truncated in the middle of the base64 text and of the html part.

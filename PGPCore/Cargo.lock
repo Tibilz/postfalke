@@ -1014,6 +1014,7 @@ name = "pgpcore"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "bytes",
  "pgp",
  "rand",
  "serde",

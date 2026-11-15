@@ -211,6 +211,30 @@ public enum PGP {
         return (json["text"] as? String ?? "", signatures(json))
     }
 
+    /// Sets when the own key expires (nil = never). Returns the updated key pair.
+    public static func setExpiry(_ secret: PGPSecret, expires: Date?) throws -> PGPKeyInfo {
+        var request: [String: Any] = ["op": "set_expiry", "secret": secret.armored, "passphrase": secret.passphrase]
+        if let expires { request["expires"] = UInt64(expires.timeIntervalSince1970) }
+        return try key(from: call(request))
+    }
+
+    public enum RevocationReason: Int, Sendable, CaseIterable {
+        case none = 0, superseded = 1, compromised = 2, retired = 3
+    }
+
+    /// Revokes the own key. Returns the updated key pair (share its public part).
+    public static func revoke(_ secret: PGPSecret, reason: RevocationReason, text: String = "") throws -> PGPKeyInfo {
+        try key(from: call(["op": "revoke", "secret": secret.armored, "passphrase": secret.passphrase,
+                            "reason": reason.rawValue, "text": text]))
+    }
+
+    private static func key(from json: [String: Any]) throws -> PGPKeyInfo {
+        guard let key = (json["key"] as? [String: Any]).flatMap(PGPKeyInfo.init(json:)) else {
+            throw MailError.pgp("Unerwartete Antwort der Kryptobibliothek.")
+        }
+        return key
+    }
+
     /// Strips the ASCII armor from a key block and returns the binary packets.
     public static func dearmor(_ armored: String) -> Data? {
         var payload = ""

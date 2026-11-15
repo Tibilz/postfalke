@@ -7,6 +7,7 @@ struct ComposeView: View {
     @Environment(AccountStore.self) private var accounts
     @Environment(MailStore.self) private var mail
     @Environment(KeyStore.self) private var keys
+    @Environment(Outbox.self) private var outbox
 
     @State var draft: ComposeDraft
     @State private var sign = false
@@ -19,6 +20,16 @@ struct ComposeView: View {
     @State private var error: String?
     @State private var didSetDefaults = false
     @State private var confirmDiscard = false
+    @State private var showSchedule = false
+    @State private var scheduleDate = Date().addingTimeInterval(3600)
+    @State private var isSavingDraft = false
+    @State private var autosave: Task<Void, Never>?
+    /// Set when the sheet closes, so a pending autosave does not bring the draft back.
+    @State private var isClosing = false
+    /// Incremented to move the cursor into the text (Return in the subject).
+    @State private var bodyFocusRequest = 0
+    @State private var isLookingUpKeys = false
+    @State private var lookupResult: String?
     @FocusState private var focus: Field?
 
     private enum Field { case to, cc, bcc, subject, body }
@@ -43,9 +54,10 @@ struct ComposeView: View {
         !recipients.isEmpty && !isSending && (!encrypt || canEncrypt) && (!sign || personalKey != nil)
     }
 
-    private var hasContent: Bool {
-        !draft.to.isEmpty || !draft.subject.isEmpty || !draft.attachments.isEmpty
-            || !draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private var hasContent: Bool { draft.hasContent }
+
+    private var currentOptions: DraftOptions {
+        DraftOptions(sign: sign, encrypt: encrypt, protectSubject: protectSubject, attachOwnKey: attachOwnKey)
     }
 
     var body: some View {
@@ -53,7 +65,9 @@ struct ComposeView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     row("An:") {
-                        addressField($draft.to, field: .to, id: "compose.to")
+                        RecipientField(text: $draft.to, identifier: "compose.to", showKeyState: encrypt,
+                                       autofocus: draft.to.isEmpty)
+                        ContactPickerButton { add($0, to: \.to) }
                         if encrypt, !recipients.isEmpty {
                             Image(systemName: missingKeys.isEmpty ? "lock.fill" : "lock.open.trianglebadge.exclamationmark")
                                 .foregroundStyle(missingKeys.isEmpty ? .green : .orange)
@@ -63,9 +77,15 @@ struct ComposeView: View {
                     separator
 
                     if showCopies {
-                        row("Kopie:") { addressField($draft.cc, field: .cc, id: "compose.cc") }
+                        row("Kopie:") {
+                            RecipientField(text: $draft.cc, identifier: "compose.cc", showKeyState: encrypt)
+                            ContactPickerButton { add($0, to: \.cc) }
+                        }
                         separator
-                        row("Blindkopie:") { addressField($draft.bcc, field: .bcc, id: "compose.bcc") }
+                        row("Blindkopie:") {
+                            RecipientField(text: $draft.bcc, identifier: "compose.bcc", showKeyState: encrypt)
+                            ContactPickerButton { add($0, to: \.bcc) }
+                        }
                         separator
                         row("Von:") { fromPicker }
                         separator
@@ -88,7 +108,7 @@ struct ComposeView: View {
                         TextField("", text: $draft.subject)
                             .focused($focus, equals: .subject)
                             .submitLabel(.next)
-                            .onSubmit { focus = .body }
+                            .onSubmit { bodyFocusRequest += 1 }
                             .accessibilityIdentifier("compose.subject")
                     }
                     separator
@@ -101,15 +121,10 @@ struct ComposeView: View {
                         separator
                     }
 
-                    TextEditor(text: $draft.body)
-                        .focused($focus, equals: .body)
-                        .font(.body)
-                        .scrollDisabled(true)
-                        .scrollContentBackground(.hidden)
-                        .frame(minHeight: 320)
+                    BodyEditor(text: $draft.body, startAtTop: draft.body.hasPrefix("\n"),
+                               autofocus: !draft.to.isEmpty, focusRequest: bodyFocusRequest)
+                        .frame(minHeight: 320, alignment: .top)
                         .padding(.horizontal, 11)
-                        .padding(.top, 6)
-                        .accessibilityIdentifier("compose.body")
                 }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -129,29 +144,42 @@ struct ComposeView: View {
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    if isSending {
+                    if isSending || isSavingDraft {
                         ProgressView()
                     } else {
-                        Button {
-                            Task { await send() }
+                        // Tap sends, a long press offers "Später senden".
+                        Menu {
+                            Button { queue(at: nil) } label: { Label("Jetzt senden", systemImage: "paperplane") }
+                            if let tonight = Self.tonight {
+                                Button { queue(at: tonight) } label: { Label("Heute, 21:00", systemImage: "moon") }
+                            }
+                            Button { queue(at: Self.tomorrowMorning) } label: { Label("Morgen, 8:00", systemImage: "sunrise") }
+                            Button { showSchedule = true } label: { Label("Später senden …", systemImage: "clock") }
                         } label: {
                             Label("Senden", systemImage: "arrow.up.circle.fill")
                                 .font(.title2)
+                        } primaryAction: {
+                            queue(at: nil)
                         }
                         .disabled(!canSend)
                         .tint(encrypt ? .green : .accentColor)
                     }
                 }
             }
-            .confirmationDialog("E-Mail verwerfen?", isPresented: $confirmDiscard, titleVisibility: .visible) {
-                Button("Entwurf löschen", role: .destructive) { dismiss() }
+            .confirmationDialog("Entwurf", isPresented: $confirmDiscard) {
+                Button("Entwurf sichern") { Task { await saveDraftAndClose() } }
+                Button("Entwurf löschen", role: .destructive) { discard() }
+                Button("Weiter bearbeiten", role: .cancel) {}
             } message: {
-                Text("Entwürfe werden noch nicht gespeichert.")
+                Text(MailStore.encryptDrafts && personalKey != nil
+                     ? "Der Entwurf wird verschlüsselt im Ordner „Entwürfe“ gesichert."
+                     : "Der Entwurf wird im Ordner „Entwürfe“ gesichert.")
             }
+            .sheet(isPresented: $showSchedule) { scheduleSheet }
             .fileImporter(isPresented: $showImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
                 attach(result)
             }
-            .alert("Senden fehlgeschlagen", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            .alert("Entwurf nicht gesichert", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
                 Button("Fehler kopieren") { UIPasteboard.general.string = error }
                 Button("OK", role: .cancel) {}
             } message: {
@@ -161,8 +189,11 @@ struct ComposeView: View {
             .onAppear(perform: applyDefaults)
             .onChange(of: draft.accountID) {
                 didSetDefaults = false
+                draft.options = nil
                 applyDefaults()
             }
+            .onChange(of: currentOptions) { draft.options = currentOptions }
+            .onChange(of: draft) { scheduleAutosave() }
         }
     }
 
@@ -182,6 +213,13 @@ struct ComposeView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .contentShape(Rectangle())
+    }
+
+    /// Adds an address picked from the contacts to a recipient line.
+    private func add(_ address: MailAddress, to field: WritableKeyPath<ComposeDraft, String>) {
+        let current = draft[keyPath: field].trimmingCharacters(in: .whitespaces)
+        let entry = HeaderCodec.formatAddress(address)
+        draft[keyPath: field] = current.isEmpty ? entry : current + ", " + entry
     }
 
     private func addressField(_ text: Binding<String>, field: Field, id: String) -> some View {
@@ -242,6 +280,32 @@ struct ComposeView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 16)
             }
+            if encrypt, !missingKeys.isEmpty {
+                Button {
+                    Task { await lookUpMissingKeys() }
+                } label: {
+                    HStack(spacing: 6) {
+                        if isLookingUpKeys { ProgressView().controlSize(.small) } else { Image(systemName: "magnifyingglass") }
+                        Text("Schlüssel online suchen")
+                    }
+                    .font(.footnote.weight(.medium))
+                }
+                .disabled(isLookingUpKeys)
+                .padding(.horizontal, 16)
+            }
+            if let lookupResult {
+                Text(lookupResult)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+            }
+            if let key = personalKey, keys.expiresSoon(key), let expires = key.expires {
+                Label("Dein Schlüssel läuft am \(expires.formatted(date: .abbreviated, time: .omitted)) ab. Verlängere ihn unter Einstellungen › Schlüsselverwaltung.",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 16)
+            }
         }
         .padding(.vertical, 10)
     }
@@ -300,10 +364,17 @@ struct ComposeView: View {
         guard !didSetDefaults, let account else { return }
         didSetDefaults = true
         let hasKey = personalKey != nil
-        sign = hasKey && (account.signByDefault || draft.preferEncryption)
-        encrypt = hasKey && (account.encryptByDefault || draft.preferEncryption)
+        if let options = draft.options {
+            sign = hasKey && options.sign
+            encrypt = hasKey && options.encrypt
+            protectSubject = options.protectSubject
+            attachOwnKey = hasKey && options.attachOwnKey
+        } else {
+            sign = hasKey && (account.signByDefault || draft.preferEncryption)
+            encrypt = hasKey && (account.encryptByDefault || draft.preferEncryption)
+        }
         showCopies = showCopies || !draft.cc.isEmpty || !draft.bcc.isEmpty
-        focus = draft.to.isEmpty ? .to : .body
+        // With recipients already filled in (reply), the text view focuses itself.
     }
 
     private func attach(_ result: Result<[URL], Error>) {
@@ -317,49 +388,176 @@ struct ComposeView: View {
         }
     }
 
-    private func send() async {
-        guard let account else { return }
-        isSending = true
-        defer { isSending = false }
+    /// Asks the recipients' providers and keys.openpgp.org (only on request: it reveals the addresses).
+    private func lookUpMissingKeys() async {
+        isLookingUpKeys = true
+        defer { isLookingUpKeys = false }
+        let wanted = missingKeys.map { $0.email.lowercased() }
+        let found = await keys.discover(wanted)
+        let missing = wanted.filter { found[$0] == nil }
+        lookupResult = missing.isEmpty
+            ? "Alle Schlüssel gefunden. Vergleiche Fingerabdrücke, wenn es auf Vertrauen ankommt."
+            : "Nicht gefunden: \(missing.joined(separator: ", "))"
+    }
 
-        var message = OutgoingMessage(from: account.address)
-        message.to = HeaderCodec.parseAddressList(draft.to)
-        message.cc = HeaderCodec.parseAddressList(draft.cc)
-        message.bcc = HeaderCodec.parseAddressList(draft.bcc)
-        message.subject = draft.subject
-        message.body = draft.body
-        message.attachments = draft.attachments
-        message.inReplyTo = draft.inReplyTo
-        message.references = draft.references
+    // MARK: Sending and drafts
 
-        var options: PGPSendOptions?
-        if let key = personalKey {
-            message.autocryptKey = key.publicArmored
-            if attachOwnKey {
-                message.attachments.append(MailAttachment(
-                    filename: "OpenPGP_0x\(key.keyID).asc", mimeType: "application/pgp-keys",
-                    data: Data(key.publicArmored.utf8)))
-            }
-            if sign || encrypt {
-                // Encrypt to every recipient and to ourselves, so the sent copy stays readable.
-                let recipientKeys = encrypt
-                    ? message.allRecipients.compactMap { keys.encryptionKey(for: $0.email)?.publicArmored } + [key.publicArmored]
-                    : []
-                options = PGPSendOptions(sign: sign, encrypt: encrypt,
-                                         signer: keys.secret(for: key.fingerprint),
-                                         recipientKeys: recipientKeys,
-                                         protectSubject: encrypt && protectSubject)
-            }
+    private static var tonight: Date? {
+        let date = Calendar.current.date(bySettingHour: 21, minute: 0, second: 0, of: .now)
+        return date.flatMap { $0.timeIntervalSinceNow > 30 * 60 ? $0 : nil }
+    }
+
+    private static var tomorrowMorning: Date {
+        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: .now) ?? .now
+        return Calendar.current.date(bySettingHour: 8, minute: 0, second: 0, of: tomorrow) ?? tomorrow
+    }
+
+    /// Hands the message to the outbox: it leaves after the undo window or at `date`.
+    private func queue(at date: Date?) {
+        guard canSend else { return }
+        isClosing = true
+        autosave?.cancel()
+        var final = draft
+        final.options = currentOptions
+        outbox.enqueue(final, at: date)
+        LocalDrafts.remove(draft.id)
+        dismiss()
+    }
+
+    private func scheduleAutosave() {
+        autosave?.cancel()
+        guard !isClosing else { return }
+        let snapshot = draft
+        autosave = Task {
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled, !isClosing else { return }
+            LocalDrafts.save(snapshot)
         }
+    }
 
+    private func saveDraftAndClose() async {
+        isSavingDraft = true
+        defer { isSavingDraft = false }
+        autosave?.cancel()
+        draft.options = currentOptions
         do {
-            try await mail.send(message, pgp: options, account: account)
-            if let answering = draft.answering {
-                await mail.markAnswered(answering.folder, uid: answering.uid)
-            }
+            let messageID = try await mail.saveDraft(draft, keys: keys)
+            isClosing = true
+            draft.serverMessageID = messageID
+            autosave?.cancel()
+            LocalDrafts.remove(draft.id)
             dismiss()
         } catch {
-            self.error = MailStore.describe(error)
+            // Keep it on the device; the outbox list offers it again.
+            LocalDrafts.save(draft)
+            self.error = MailStore.describe(error) + "\n\nDer Entwurf bleibt auf diesem Gerät gespeichert (Postausgang)."
+        }
+    }
+
+    private func discard() {
+        isClosing = true
+        autosave?.cancel()
+        LocalDrafts.remove(draft.id)
+        if let messageID = draft.serverMessageID {
+            let account = draft.accountID
+            Task { await mail.deleteServerDraft(accountID: account, messageID: messageID) }
+        }
+        dismiss()
+    }
+
+    private var scheduleSheet: some View {
+        NavigationStack {
+            Form {
+                DatePicker("Senden am", selection: $scheduleDate, in: Date().addingTimeInterval(60)...,
+                           displayedComponents: [.date, .hourAndMinute])
+                    .datePickerStyle(.graphical)
+            }
+            .navigationTitle("Später senden")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Abbrechen") { showSchedule = false } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Planen") {
+                        showSchedule = false
+                        queue(at: scheduleDate)
+                    }
+                }
+            }
+        }
+        .presentationDetents([.large])
+    }
+}
+
+/// The message text: a plain UITextView that grows with its content.
+/// In replies the cursor starts above the quote, as in Mail. The text is only
+/// pushed into the view when it changed elsewhere, so typing is never disturbed.
+private struct BodyEditor: UIViewRepresentable {
+    @Binding var text: String
+    let startAtTop: Bool
+    var autofocus = false
+    var focusRequest = 0
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.font = .preferredFont(forTextStyle: .body)
+        view.adjustsFontForContentSizeCategory = true
+        view.backgroundColor = .clear
+        view.isScrollEnabled = false
+        view.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 24, right: 0)
+        view.textContainer.lineFragmentPadding = 5
+        view.autocapitalizationType = .sentences
+        view.delegate = context.coordinator
+        view.text = text
+        view.accessibilityIdentifier = "compose.body"
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        if autofocus {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                view.becomeFirstResponder()
+                if startAtTop { view.selectedRange = NSRange(location: 0, length: 0) }
+            }
+        }
+        return view
+    }
+
+    func updateUIView(_ view: UITextView, context: Context) {
+        context.coordinator.parent = self
+        if view.text != text { view.text = text }
+        if context.coordinator.handledFocusRequest != focusRequest {
+            context.coordinator.handledFocusRequest = focusRequest
+            DispatchQueue.main.async { view.becomeFirstResponder() }
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        let width = proposal.width ?? 320
+        let fitting = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: fitting.height)
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: BodyEditor
+        var handledFocusRequest: Int
+        private var placedCursor = false
+
+        init(_ parent: BodyEditor) {
+            self.parent = parent
+            handledFocusRequest = parent.focusRequest
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            parent.text = textView.text
+        }
+
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            // First time in a reply: write above the quote.
+            guard !placedCursor else { return }
+            placedCursor = true
+            if parent.startAtTop {
+                DispatchQueue.main.async { textView.selectedRange = NSRange(location: 0, length: 0) }
+            }
         }
     }
 }
