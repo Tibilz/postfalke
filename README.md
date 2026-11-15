@@ -92,7 +92,7 @@ or look at the certificate in a browser.
 - No share extension yet (it needs an App Group, which free developer accounts may not be able to sign)
 - Bitwarden gives other iOS apps no direct access to the vault; import goes through the clipboard or the share sheet
 - CardDAV is read-only; your own keys are not written to contacts
-- No drafts, no HTML composing, no S/MIME
+- No HTML composing, no S/MIME
 
 ## License
 
