@@ -28,12 +28,17 @@ public struct PGPKeyInfo: Codable, Hashable, Identifiable, Sendable {
     public var primaryUserID: String { userIDs.first ?? "(ohne Benutzer-ID)" }
 
     /// Fingerprint in groups of four for display.
-    public var formattedFingerprint: String {
-        stride(from: 0, to: fingerprint.count, by: 4).map { offset -> String in
+    public var formattedFingerprint: String { Self.groupedFingerprint(fingerprint) }
+
+    /// `ABCD EF01 …`; the spaces are non-breaking inside each half so lines break in the middle only.
+    public static func groupedFingerprint(_ fingerprint: String) -> String {
+        let groups = stride(from: 0, to: fingerprint.count, by: 4).map { offset -> String in
             let start = fingerprint.index(fingerprint.startIndex, offsetBy: offset)
             let end = fingerprint.index(start, offsetBy: 4, limitedBy: fingerprint.endIndex) ?? fingerprint.endIndex
             return String(fingerprint[start..<end])
-        }.joined(separator: " ")
+        }
+        let half = (groups.count + 1) / 2
+        return groups[..<half].joined(separator: "\u{00A0}") + " " + groups[half...].joined(separator: "\u{00A0}")
     }
 
     fileprivate init?(json: [String: Any]) {

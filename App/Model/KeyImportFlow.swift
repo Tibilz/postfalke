@@ -77,6 +77,7 @@ struct KeyImportAlerts: ViewModifier {
                 Text("Der private Schlüssel ist geschützt. Die Passphrase wird im Schlüsselbund dieses Geräts gespeichert.")
             }
             .alert("Schlüsselimport", isPresented: Binding(get: { flow.notice != nil }, set: { if !$0 { flow.notice = nil } })) {
+                Button("Text kopieren") { UIPasteboard.general.string = flow.notice }
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(flow.notice ?? "")

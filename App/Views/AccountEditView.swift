@@ -24,10 +24,12 @@ struct AccountEditView: View {
     @State private var lookupNote: String?
     @State private var isSaving = false
     @State private var error: String?
+    @State private var errorIsLogin = false
     @State private var confirmDelete = false
     @State private var untrusted: CertificateInfo?
 
     private var isNew: Bool { account == nil }
+    private var provider: MailProvider { MailProvider.detect(host: imap.host, email: email) }
 
     private var isComplete: Bool {
         email.contains("@") && !imap.host.isEmpty && !smtp.host.isEmpty
@@ -47,8 +49,34 @@ struct AccountEditView: View {
                 SecureField(isNew ? "Passwort" : "Passwort (unverändert)", text: $password)
             } header: {
                 Text("Konto")
-            } footer: {
-                Text("Anbieter wie Gmail, Outlook oder iCloud verlangen ein App-Passwort; bei manchen (z. B. WEB.DE, GMX) muss IMAP erst in den Einstellungen des Postfachs aktiviert werden.")
+            }
+
+            if let error {
+                Section {
+                    ErrorNotice(message: error,
+                                hint: errorIsLogin ? (provider.loginHint ?? "Prüfe Benutzername und Passwort. Manche Anbieter verlangen ein eigenes App-Passwort.") : nil,
+                                helpURL: errorIsLogin ? provider.helpURL : nil,
+                                helpTitle: provider == .google ? "App-Passwort erstellen" : "Anleitung öffnen")
+                    Button("Ohne Prüfung speichern") { store() }
+                }
+            }
+
+            if let hint = provider.loginHint, !errorIsLogin {
+                Section {
+                    Label {
+                        Text(hint).font(.footnote)
+                    } icon: {
+                        Image(systemName: "info.circle.fill").foregroundStyle(.tint)
+                    }
+                    if let url = provider.helpURL {
+                        Link(destination: url) {
+                            Label(provider == .google ? "App-Passwort erstellen" : "Anleitung öffnen",
+                                  systemImage: "arrow.up.right.square")
+                        }
+                    }
+                } header: {
+                    Text(provider.name)
+                }
             }
 
             Section {
@@ -92,12 +120,6 @@ struct AccountEditView: View {
                 }
             }
 
-            if let error {
-                Section {
-                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
-                    Button("Ohne Prüfung speichern") { store() }
-                }
-            }
         }
         .navigationTitle(isNew ? "Konto hinzufügen" : (account?.email ?? "Konto"))
         .navigationBarTitleDisplayMode(.inline)
@@ -195,10 +217,15 @@ struct AccountEditView: View {
         isSaving = true
         defer { isSaving = false }
         let candidate = buildAccount()
+        password = provider.normalizedPassword(password)
         let secret = password.isEmpty ? accounts.password(for: candidate) : password
+        errorIsLogin = false
         do {
             try await MailStore.verify(candidate, password: secret)
             store()
+        } catch MailError.authentication(let message) {
+            error = MailStore.describe(MailError.authentication(message))
+            errorIsLogin = true
         } catch MailError.untrustedCertificate(let info) {
             error = MailStore.describe(MailError.untrustedCertificate(info))
             untrusted = info

@@ -96,6 +96,9 @@ public struct MessageHeader: Codable, Hashable, Identifiable, Sendable {
     public var references: String?
     /// Lowercased top-level media type, e.g. `multipart/encrypted`.
     public var contentType: String
+    /// Content-Type parameters (boundary, charset), needed to build a preview.
+    public var contentTypeParams: [String: String] = [:]
+    public var transferEncoding: String?
 
     public var id: UInt32 { uid }
     public var isSeen: Bool { flags.contains("\\Seen") }

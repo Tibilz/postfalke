@@ -10,6 +10,8 @@ struct MessageDetailView: View {
     let folder: FolderKey
     let header: MessageHeader
     var compose: (ComposeDraft) -> Void
+    /// Shows another message of the same list (previous/next).
+    var navigate: (UInt32) -> Void
     var close: () -> Void
 
     @State private var message: ProcessedMessage?
@@ -22,37 +24,63 @@ struct MessageDetailView: View {
 
     private var subject: String {
         let text = message?.protectedSubject ?? mail.subject(folder, header: header)
-        return text.isEmpty ? "(kein Betreff)" : text
+        return text.isEmpty ? "Kein Betreff" : text
     }
+
+    private var sender: MailAddress? { header.from.first }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 0) {
                 headerBlock
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+
+                Divider()
+                    .padding(.leading, 16)
+                    .padding(.vertical, 12)
+
+                Text(subject)
+                    .font(.title3.weight(.semibold))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+
                 if let message {
                     SecurityBanner(security: message.security)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 10)
                     keyOffer(message)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 10)
                     if !message.content.attachments.isEmpty {
                         attachments(message.content.attachments)
+                            .padding(.top, 12)
                     }
-                    Divider()
                     content(message)
+                        .padding(.horizontal, 14)
+                        .padding(.top, 14)
                 } else if let loadError {
-                    Label(loadError, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.red)
-                    Button("Erneut versuchen") { Task { await load() } }
+                    VStack(alignment: .leading, spacing: 12) {
+                        ErrorNotice(message: loadError)
+                        Button("Erneut versuchen") { Task { await load() } }
+                            .buttonStyle(.bordered)
+                    }
+                    .padding(16)
                 } else {
-                    HStack { Spacer(); ProgressView("Nachricht wird geladen …"); Spacer() }
-                        .padding(.top, 40)
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 60)
                 }
             }
-            .padding()
+            .padding(.bottom, 24)
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
         .task { await load() }
         .quickLookPreview($preview)
         .alert("OpenPGP", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
+            Button("Text kopieren") { UIPasteboard.general.string = notice }
             Button("OK", role: .cancel) {}
         } message: {
             Text(notice ?? "")
@@ -81,42 +109,65 @@ struct MessageDetailView: View {
     // MARK: Header
 
     private var headerBlock: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(subject)
-                .font(.title3.bold())
-                .textSelection(.enabled)
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(header.from.first?.displayName ?? "(unbekannter Absender)")
+        HStack(alignment: .top, spacing: 12) {
+            AvatarView(name: sender?.displayName ?? "", size: 44)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(sender?.displayName ?? "Unbekannter Absender")
                         .font(.headline)
-                    if showDetails {
-                        addressLine("Von", header.from)
-                        addressLine("An", header.to)
-                        addressLine("Kopie", header.cc)
-                    } else {
-                        Text("An: " + (header.to + header.cc).map(\.displayName).joined(separator: ", "))
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(dateText)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
-                Spacer()
-                Text((header.date ?? header.internalDate)?.formatted(date: .abbreviated, time: .shortened) ?? "")
-                    .font(.footnote)
+                if showDetails {
+                    addressLine("Von", header.from)
+                    addressLine("An", header.to)
+                    addressLine("Kopie", header.cc)
+                    addressLine("Antwort an", header.replyTo)
+                    Button("Ausblenden") { withAnimation(.snappy) { showDetails = false } }
+                        .font(.subheadline)
+                        .padding(.top, 2)
+                } else {
+                    HStack(spacing: 4) {
+                        Text("An: " + recipientSummary)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .contentShape(Rectangle())
+                    .onTapGesture { withAnimation(.snappy) { showDetails = true } }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint("Zeigt alle Adressen")
+                }
             }
-            .contentShape(Rectangle())
-            .onTapGesture { withAnimation { showDetails.toggle() } }
         }
+    }
+
+    private var recipientSummary: String {
+        let own = accounts.account(folder.accountID)?.email.lowercased()
+        let names = (header.to + header.cc).map { $0.email.lowercased() == own ? "Ich" : $0.displayName }
+        return names.isEmpty ? "–" : names.joined(separator: ", ")
+    }
+
+    private var dateText: String {
+        guard let date = header.date ?? header.internalDate else { return "" }
+        return Calendar.current.isDateInToday(date)
+            ? date.formatted(date: .omitted, time: .shortened)
+            : date.formatted(.dateTime.day().month(.abbreviated).year().hour().minute())
     }
 
     @ViewBuilder
     private func addressLine(_ label: String, _ list: [MailAddress]) -> some View {
         if !list.isEmpty {
-            Text("\(label): " + list.map(\.formatted).joined(separator: ", "))
+            (Text("\(label): ").foregroundStyle(.secondary) + Text(list.map(\.formatted).joined(separator: ", ")))
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
                 .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -129,9 +180,16 @@ struct MessageDetailView: View {
                 Button {
                     allowRemote = true
                 } label: {
-                    Label("Externe Inhalte wurden blockiert – jetzt laden", systemImage: "photo")
-                        .font(.footnote)
+                    Label("Externe Inhalte laden", systemImage: "photo.badge.arrow.down")
+                        .font(.footnote.weight(.medium))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+                .padding(.horizontal, 2)
+                .padding(.bottom, 10)
             }
             HTMLView(html: MessageHTML.page(html: html), allowRemoteContent: allowRemote, height: $bodyHeight)
                 .frame(height: bodyHeight)
@@ -140,35 +198,41 @@ struct MessageDetailView: View {
             HTMLView(html: MessageHTML.page(plain: plain), allowRemoteContent: false, height: $bodyHeight)
                 .frame(height: bodyHeight)
         } else if message.security.decryptionError == nil {
-            Text("Diese Nachricht hat keinen Textinhalt.")
+            Text("Diese E-Mail hat keinen Textinhalt.")
                 .foregroundStyle(.secondary)
+                .padding(.horizontal, 2)
         }
     }
 
     private func attachments(_ list: [MailAttachment]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack {
+            HStack(spacing: 8) {
                 ForEach(list) { attachment in
                     Button {
                         open(attachment)
                     } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: attachment.isPGPKey ? "key" : "paperclip")
-                            VStack(alignment: .leading) {
-                                Text(attachment.filename).lineLimit(1)
+                        HStack(spacing: 8) {
+                            Image(systemName: attachment.isPGPKey ? "key.fill" : "doc.fill")
+                                .font(.title3)
+                                .foregroundStyle(.tint)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(attachment.filename)
+                                    .font(.footnote.weight(.medium))
+                                    .lineLimit(1)
                                 Text(ByteCountFormatter.string(fromByteCount: Int64(attachment.data.count), countStyle: .file))
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        .font(.footnote)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                        .frame(maxWidth: 200, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
                     }
                     .buttonStyle(.plain)
                 }
             }
+            .padding(.horizontal, 16)
         }
     }
 
@@ -213,13 +277,23 @@ struct MessageDetailView: View {
                         + "\n\nVergleiche den Fingerabdruck über einen zweiten Kanal, bevor du dem Schlüssel vertraust."
                 Task { await load() }
             } label: {
-                Label("Öffentlichen Schlüssel des Absenders importieren", systemImage: "key.viewfinder")
-                    .font(.footnote)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                HStack(spacing: 10) {
+                    Image(systemName: "key.viewfinder")
+                        .font(.title3)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Schlüssel des Absenders importieren")
+                            .font(.subheadline.weight(.medium))
+                        Text("Damit kannst du ihm verschlüsselt schreiben.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(12)
+                .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
             }
             .buttonStyle(.plain)
+            .foregroundStyle(.tint)
         }
     }
 
@@ -249,16 +323,39 @@ struct MessageDetailView: View {
                        all: all, account: account, folder: folder))
     }
 
+    /// Neighbours in the list (newest first): `previous` is above, `next` below.
+    private var neighbours: (previous: UInt32?, next: UInt32?) {
+        let uids = mail.mailbox(folder).headers.map(\.uid)
+        guard let index = uids.firstIndex(of: header.uid) else { return (nil, nil) }
+        return (index > 0 ? uids[index - 1] : nil, index + 1 < uids.count ? uids[index + 1] : nil)
+    }
+
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .bottomBar) {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            let around = neighbours
+            Button {
+                if let uid = around.previous { navigate(uid) }
+            } label: {
+                Label("Vorherige E-Mail", systemImage: "chevron.up")
+            }
+            .disabled(around.previous == nil)
+            Button {
+                if let uid = around.next { navigate(uid) }
+            } label: {
+                Label("Nächste E-Mail", systemImage: "chevron.down")
+            }
+            .disabled(around.next == nil)
+        }
+        ToolbarItem(placement: .bottomBar) {
             Button {
                 close()
                 Task { await mail.delete(folder, header: header) }
             } label: {
                 Label("Löschen", systemImage: "trash")
             }
-            Spacer()
+        }
+        ToolbarItem(placement: .bottomBar) {
             Menu {
                 ForEach(mail.folders[folder.accountID]?.filter { $0.isSelectable && $0.path != folder.path } ?? []) { target in
                     Button {
@@ -269,15 +366,10 @@ struct MessageDetailView: View {
                     }
                 }
             } label: {
-                Label("Verschieben", systemImage: "folder")
+                Label("Bewegen", systemImage: "folder")
             }
-            Spacer()
-            Button {
-                Task { await mail.setFlagged(folder, header: header, flagged: !header.isFlagged) }
-            } label: {
-                Label("Markieren", systemImage: header.isFlagged ? "star.fill" : "star")
-            }
-            Spacer()
+        }
+        ToolbarItem(placement: .bottomBar) {
             Menu {
                 Button { reply(all: false) } label: { Label("Antworten", systemImage: "arrowshape.turn.up.left") }
                 Button { reply(all: true) } label: { Label("Allen antworten", systemImage: "arrowshape.turn.up.left.2") }
@@ -291,6 +383,11 @@ struct MessageDetailView: View {
                 }
                 Divider()
                 Button {
+                    Task { await mail.setFlagged(folder, header: header, flagged: !header.isFlagged) }
+                } label: {
+                    Label(header.isFlagged ? "Markierung entfernen" : "Markieren", systemImage: "flag")
+                }
+                Button {
                     close()
                     Task { await mail.setSeen(folder, header: header, seen: false) }
                 } label: {
@@ -298,53 +395,119 @@ struct MessageDetailView: View {
                 }
             } label: {
                 Label("Antworten", systemImage: "arrowshape.turn.up.left")
-            } primaryAction: {
-                reply(all: false)
             }
             .disabled(message == nil)
+        }
+        ToolbarItem(placement: .bottomBar) {
+            Button {
+                if let account { compose(.new(account: account)) }
+            } label: {
+                Label("Verfassen", systemImage: "square.and.pencil")
+            }
         }
     }
 }
 
-/// Shows what OpenPGP found out about the message.
+/// What OpenPGP found out about the message: small chips when all is well,
+/// a clear explanation when something is wrong.
 struct SecurityBanner: View {
     @Environment(KeyStore.self) private var keys
     let security: MessageSecurity
+    @State private var expanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             if let error = security.decryptionError {
-                row("lock.slash", .red, "Entschlüsselung fehlgeschlagen", error)
-            } else if security.wasEncrypted {
-                row("lock.fill", .green, "Verschlüsselte Nachricht", "Mit deinem privaten Schlüssel entschlüsselt.")
+                problem("lock.slash.fill", "Entschlüsselung fehlgeschlagen", error)
             }
             switch security.signature {
-            case .none:
-                EmptyView()
-            case .valid(let fingerprint):
-                row("checkmark.seal.fill", .green, "Gültige Signatur", keys.ownerName(fingerprint: fingerprint))
             case .invalid:
-                row("xmark.seal.fill", .red, "Ungültige Signatur",
-                    "Die Nachricht wurde verändert oder nicht mit dem bekannten Schlüssel signiert.")
+                problem("xmark.seal.fill", "Ungültige Signatur",
+                        "Die E-Mail wurde verändert oder nicht mit dem bekannten Schlüssel signiert.")
             case .unknownKey(let keyID):
-                row("questionmark.diamond", .orange, "Signatur nicht prüfbar",
-                    "Der öffentliche Schlüssel \(keyID) ist nicht im Schlüsselbund.")
+                problem("questionmark.diamond.fill", "Signatur nicht prüfbar",
+                        "Der öffentliche Schlüssel \(keyID) ist nicht in deinem Schlüsselbund.", tint: .orange)
+            default:
+                EmptyView()
+            }
+            if hasChips {
+                Button {
+                    withAnimation(.snappy) { expanded.toggle() }
+                } label: {
+                    HStack(spacing: 6) {
+                        if security.wasEncrypted, security.decryptionError == nil {
+                            chip("lock.fill", "Verschlüsselt")
+                        }
+                        if case .valid = security.signature {
+                            chip("checkmark.seal.fill", "Signatur gültig")
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Zeigt Details zu Verschlüsselung und Signatur")
+                if expanded {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(explanation)
+                            .font(.footnote)
+                        if case .valid(let fingerprint) = security.signature {
+                            // Groups of four, like the key list; never split inside a group.
+                            Text(PGPKeyInfo.groupedFingerprint(fingerprint))
+                                .font(.caption.monospaced())
+                        }
+                    }
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
 
-    private func row(_ icon: String, _ color: Color, _ title: String, _ detail: String) -> some View {
+    private var hasChips: Bool {
+        if security.wasEncrypted, security.decryptionError == nil { return true }
+        if case .valid = security.signature { return true }
+        return false
+    }
+
+    private var explanation: String {
+        var parts: [String] = []
+        if security.wasEncrypted { parts.append("Mit deinem privaten Schlüssel entschlüsselt.") }
+        if case .valid(let fingerprint) = security.signature {
+            parts.append("Signiert von \(keys.ownerName(fingerprint: fingerprint)). Fingerabdruck:")
+        }
+        return parts.joined(separator: "\n")
+    }
+
+    private func chip(_ icon: String, _ title: String) -> some View {
+        Label(title, systemImage: icon)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.green)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Color.green.opacity(0.13), in: Capsule())
+    }
+
+    private func problem(_ icon: String, _ title: String, _ detail: String, tint: Color = .red) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon)
-                .foregroundStyle(color)
-                .font(.title3)
-            VStack(alignment: .leading, spacing: 1) {
+                .foregroundStyle(tint)
+                .font(.body)
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.subheadline.weight(.semibold))
-                Text(detail).font(.footnote).foregroundStyle(.secondary)
+                Text(detail)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
-        .padding(10)
-        .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+        .padding(12)
+        .background(tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+        .contextMenu {
+            Button("Kopieren", systemImage: "doc.on.doc") { UIPasteboard.general.string = "\(title): \(detail)" }
+        }
     }
 }

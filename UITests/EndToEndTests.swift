@@ -20,12 +20,33 @@ final class EndToEndTests: XCTestCase {
     }
 
     /// Welcome screen → account form with name, address and password filled in.
-    private func fillAccountForm() {
+    private func fillAccountForm(email: String = "tester@example.org", password: String = "geheim123") {
         XCTAssertTrue(app.staticTexts["Willkommen bei Postfalke"].waitForExistence(timeout: 10))
         app.buttons["E-Mail-Konto einrichten"].tap()
         type("Tina Tester", into: app.textFields["Dein Name"])
-        type("tester@example.org", into: app.textFields["E-Mail-Adresse"])
-        type("geheim123", into: app.secureTextFields["Passwort"])
+        type(email, into: app.textFields["E-Mail-Adresse"])
+        type(password, into: app.secureTextFields["Passwort"])
+    }
+
+    /// Provider hint for Gmail addresses, and a login error that can be copied.
+    func testLoginHintAndCopyableError() throws {
+        guard ProcessInfo.processInfo.environment["MAIL_TEST_PLAIN"] != "0" else { throw XCTSkip("plain server not requested") }
+        launch(server: "21143,21025")
+        fillAccountForm(email: "tina.tester@gmail.com", password: "falsch")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'App-Passwort'")).firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.links["App-Passwort erstellen"].exists || app.buttons["App-Passwort erstellen"].exists)
+        app.buttons["Sichern"].tap()
+
+        let copy = app.buttons["Fehler kopieren"]
+        XCTAssertTrue(copy.waitForExistence(timeout: 20))
+        for _ in 0..<6 where !copy.isHittable { app.swipeUp(velocity: .slow) }
+        // Selectable text is not a plain static text for XCUITest, so match any element type.
+        let message = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS 'Anmeldung fehlgeschlagen' OR value CONTAINS 'Anmeldung fehlgeschlagen'")).firstMatch
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
+        shot("login-fehler")
+        copy.tap()
+        XCTAssertTrue(app.buttons["Kopiert"].waitForExistence(timeout: 5))
     }
 
     /// Server with a self-signed certificate (Tools/fakemail.py with FAKEMAIL_TLS_CERT,
@@ -94,6 +115,10 @@ final class EndToEndTests: XCTestCase {
             }
             Thread.sleep(forTimeInterval: 0.5)
         }
+    }
+
+    private func element(_ identifier: String) -> XCUIElement {
+        app.descendants(matching: .any)[identifier].firstMatch
     }
 
     private func webText(_ text: String) -> XCUIElement {
@@ -190,22 +215,22 @@ final class EndToEndTests: XCTestCase {
         // 6. Send an encrypted and signed mail (subject included) to ourselves
         app.staticTexts["Posteingang"].tap()
         app.buttons["Verfassen"].tap()
-        let to = app.textFields["name@example.org"].firstMatch
+        let to = element("compose.to")
         type(withContacts ? "tester@example.org, carla@example.org" : "tester@example.org", into: to)
-        let subject = app.textFields["Betreff"]
+        let subject = element("compose.subject")
         type("Streng geheim", into: subject)
-        app.switches.matching(NSPredicate(format: "label == 'Signieren'")).firstMatch.switches.firstMatch.tap()
-        app.switches.matching(NSPredicate(format: "label == 'Verschlüsseln'")).firstMatch.switches.firstMatch.tap()
-        XCTAssertTrue(app.switches.matching(NSPredicate(format: "label == 'Betreff verschlüsseln'")).firstMatch.waitForExistence(timeout: 5))
+        app.buttons["compose.sign"].tap()
+        app.buttons["compose.encrypt"].tap()
+        XCTAssertTrue(app.buttons["compose.protectSubject"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Kein öffentlicher Schlüssel'")).firstMatch.exists)
-        let body = app.textViews.firstMatch
+        let body = element("compose.body")
         type("Hallo vom UI-Test", into: body)
         shot("07-verfassen")
         app.buttons["Senden"].tap()
 
         // 7. On the server the subject is "..."; opening decrypts, verifies and reveals it
         XCTAssertTrue(app.buttons["Verfassen"].waitForExistence(timeout: 20))
-        let row = app.staticTexts["..."]
+        let row = app.staticTexts["Betreff verschlüsselt"]
         for _ in 0..<3 where !row.exists {
             app.navigationBars.buttons.element(boundBy: 0).tap()
             app.staticTexts["Posteingang"].firstMatch.tap()
@@ -215,8 +240,10 @@ final class EndToEndTests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Streng geheim"].exists)
         shot("08-posteingang-verschluesselt")
         row.tap()
-        XCTAssertTrue(app.staticTexts["Verschlüsselte Nachricht"].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.staticTexts["Gültige Signatur"].exists)
+        let security = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Verschlüsselt' AND label CONTAINS 'Signatur gültig'")).firstMatch
+        XCTAssertTrue(security.waitForExistence(timeout: 15))
+        security.tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Signiert von Tina Tester'")).firstMatch.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Streng geheim"].exists)
         XCTAssertTrue(webText("Hallo vom UI-Test").waitForExistence(timeout: 10))
         shot("09-entschluesselt")

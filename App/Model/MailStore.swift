@@ -82,6 +82,7 @@ final class MailboxState {
     var isLoading = false
     var hasLoaded = false
     var error: String?
+    var lastUpdated: Date?
 
     var canLoadMore: Bool { hasLoaded && lowestSequence > 1 }
 }
@@ -212,6 +213,8 @@ final class MailStore {
             state.lowestSequence = result.2
             state.hasLoaded = true
             state.error = nil
+            state.lastUpdated = Date()
+            await loadPreviews(key, for: state.headers)
             if key.path.uppercased() == "INBOX" {
                 noteSeen(key.accountID, uidValidity: state.uidValidity, headers: state.headers)
             }
@@ -234,9 +237,18 @@ final class MailStore {
             let known = Set(state.headers.map(\.uid))
             state.headers = (state.headers + older.filter { !known.contains($0.uid) }).sorted { $0.uid > $1.uid }
             state.lowestSequence = low
+            await loadPreviews(key, for: older)
         } catch {
             state.error = Self.describe(error)
         }
+    }
+
+    /// Results of the last server search per folder, so a hit can be opened.
+    private var searchHits: [FolderKey: [MessageHeader]] = [:]
+
+    /// A message of the folder list or of the last search.
+    func header(_ key: FolderKey, uid: UInt32) -> MessageHeader? {
+        mailbox(key).headers.first { $0.uid == uid } ?? searchHits[key]?.first { $0.uid == uid }
     }
 
     func search(_ key: FolderKey, query: String) async throws -> [MessageHeader] {
@@ -244,7 +256,38 @@ final class MailStore {
             let uids = try await imap.search(query)
             return try await imap.fetchHeaders(uids: Array(uids.suffix(200)))
         }
+        await loadPreviews(key, for: headers)
+        searchHits[key] = headers
         return headers.sorted { $0.uid > $1.uid }
+    }
+
+    // MARK: Previews
+
+    /// First lines of the body, by folder, UID validity and UID.
+    private var previews: [String: String] = [:]
+
+    private func previewKey(_ key: FolderKey, uid: UInt32) -> String {
+        "\(key.accountID.uuidString)|\(key.path)|\(mailbox(key).uidValidity)|\(uid)"
+    }
+
+    func preview(_ key: FolderKey, header: MessageHeader) -> String? {
+        previews[previewKey(key, uid: header.uid)]
+    }
+
+    /// Fetches the beginning of each body that has no preview yet (encrypted mail has none).
+    private func loadPreviews(_ key: FolderKey, for headers: [MessageHeader]) async {
+        let missing = headers.filter { !$0.isEncrypted && previews[previewKey(key, uid: $0.uid)] == nil }.prefix(100)
+        guard !missing.isEmpty else { return }
+        let uids = missing.map(\.uid)
+        guard let bodies = try? await session(key.accountID).perform(folder: key.path, { try await $0.fetchPreviews(uids: uids) })
+        else { return }
+        for header in missing {
+            guard let body = bodies[header.uid] else { continue }
+            // An empty string marks "looked, nothing to show" so it is not fetched again.
+            previews[previewKey(key, uid: header.uid)] = MessagePreview.text(
+                body: body, contentType: header.contentType, params: header.contentTypeParams,
+                transferEncoding: header.transferEncoding) ?? ""
+        }
     }
 
     // MARK: Protected subjects

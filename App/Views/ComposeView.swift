@@ -18,6 +18,7 @@ struct ComposeView: View {
     @State private var isSending = false
     @State private var error: String?
     @State private var didSetDefaults = false
+    @State private var confirmDiscard = false
     @FocusState private var focus: Field?
 
     private enum Field { case to, cc, bcc, subject, body }
@@ -42,82 +43,90 @@ struct ComposeView: View {
         !recipients.isEmpty && !isSending && (!encrypt || canEncrypt) && (!sign || personalKey != nil)
     }
 
+    private var hasContent: Bool {
+        !draft.to.isEmpty || !draft.subject.isEmpty || !draft.attachments.isEmpty
+            || !draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    if accounts.accounts.count > 1 {
-                        Picker("Von", selection: $draft.accountID) {
-                            ForEach(accounts.accounts) { Text($0.email).tag($0.id) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    row("An:") {
+                        addressField($draft.to, field: .to, id: "compose.to")
+                        if encrypt, !recipients.isEmpty {
+                            Image(systemName: missingKeys.isEmpty ? "lock.fill" : "lock.open.trianglebadge.exclamationmark")
+                                .foregroundStyle(missingKeys.isEmpty ? .green : .orange)
+                                .accessibilityLabel(missingKeys.isEmpty ? "Schlüssel für alle Empfänger vorhanden" : "Schlüssel fehlen")
                         }
                     }
-                    addressField("An", text: $draft.to, field: .to)
+                    separator
+
                     if showCopies {
-                        addressField("Kopie", text: $draft.cc, field: .cc)
-                        addressField("Blindkopie", text: $draft.bcc, field: .bcc)
+                        row("Kopie:") { addressField($draft.cc, field: .cc, id: "compose.cc") }
+                        separator
+                        row("Blindkopie:") { addressField($draft.bcc, field: .bcc, id: "compose.bcc") }
+                        separator
+                        row("Von:") { fromPicker }
+                        separator
                     } else {
-                        Button("Kopie / Blindkopie hinzufügen") { showCopies = true }
-                            .font(.footnote)
-                    }
-                    TextField("Betreff", text: $draft.subject)
-                        .focused($focus, equals: .subject)
-                }
-
-                Section {
-                    Toggle(isOn: $sign) {
-                        Label("Signieren", systemImage: "checkmark.seal")
-                    }
-                    .disabled(personalKey == nil)
-                    Toggle(isOn: $encrypt) {
-                        Label("Verschlüsseln", systemImage: encrypt ? "lock.fill" : "lock.open")
-                    }
-                    .disabled(personalKey == nil)
-                    if encrypt {
-                        Toggle(isOn: $protectSubject) {
-                            Label("Betreff verschlüsseln", systemImage: "text.badge.checkmark")
+                        Button {
+                            withAnimation(.snappy) { showCopies = true }
+                        } label: {
+                            row("Kopie/Blindkopie, Von:") {
+                                Text(account?.email ?? "")
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
                         }
+                        .buttonStyle(.plain)
+                        separator
                     }
-                    if personalKey != nil {
-                        Toggle(isOn: $attachOwnKey) {
-                            Label("Meinen öffentlichen Schlüssel anhängen", systemImage: "key")
-                        }
-                    }
-                } header: {
-                    Text("OpenPGP")
-                } footer: {
-                    securityFooter
-                }
 
-                Section("Nachricht") {
+                    row("Betreff:") {
+                        TextField("", text: $draft.subject)
+                            .focused($focus, equals: .subject)
+                            .submitLabel(.next)
+                            .onSubmit { focus = .body }
+                            .accessibilityIdentifier("compose.subject")
+                    }
+                    separator
+
+                    securityRow
+                    separator
+
+                    if !draft.attachments.isEmpty {
+                        attachmentStrip
+                        separator
+                    }
+
                     TextEditor(text: $draft.body)
-                        .frame(minHeight: 260)
                         .focused($focus, equals: .body)
-                }
-
-                Section("Anhänge") {
-                    ForEach(draft.attachments) { attachment in
-                        HStack {
-                            Image(systemName: "paperclip")
-                            Text(attachment.filename).lineLimit(1)
-                            Spacer()
-                            Text(ByteCountFormatter.string(fromByteCount: Int64(attachment.data.count), countStyle: .file))
-                                .foregroundStyle(.secondary)
-                        }
-                        .font(.subheadline)
-                    }
-                    .onDelete { draft.attachments.remove(atOffsets: $0) }
-                    Button {
-                        showImporter = true
-                    } label: {
-                        Label("Datei anhängen", systemImage: "plus")
-                    }
+                        .font(.body)
+                        .scrollDisabled(true)
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 320)
+                        .padding(.horizontal, 11)
+                        .padding(.top, 6)
+                        .accessibilityIdentifier("compose.body")
                 }
             }
-            .navigationTitle(draft.subject.isEmpty ? "Neue Nachricht" : draft.subject)
+            .scrollDismissesKeyboard(.interactively)
+            .navigationTitle(draft.subject.isEmpty ? "Neue E-Mail" : draft.subject)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Abbrechen") { dismiss() }
+                    Button("Abbrechen") {
+                        if hasContent { confirmDiscard = true } else { dismiss() }
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showImporter = true
+                    } label: {
+                        Label("Anhang hinzufügen", systemImage: "paperclip")
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if isSending {
@@ -126,21 +135,29 @@ struct ComposeView: View {
                         Button {
                             Task { await send() }
                         } label: {
-                            Label("Senden", systemImage: encrypt ? "lock.fill" : "paperplane.fill")
+                            Label("Senden", systemImage: "arrow.up.circle.fill")
+                                .font(.title2)
                         }
                         .disabled(!canSend)
+                        .tint(encrypt ? .green : .accentColor)
                     }
                 }
+            }
+            .confirmationDialog("E-Mail verwerfen?", isPresented: $confirmDiscard, titleVisibility: .visible) {
+                Button("Entwurf löschen", role: .destructive) { dismiss() }
+            } message: {
+                Text("Entwürfe werden noch nicht gespeichert.")
             }
             .fileImporter(isPresented: $showImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
                 attach(result)
             }
             .alert("Senden fehlgeschlagen", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+                Button("Fehler kopieren") { UIPasteboard.general.string = error }
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(error ?? "")
             }
-            .interactiveDismissDisabled(isSending || !draft.body.isEmpty)
+            .interactiveDismissDisabled(isSending || hasContent)
             .onAppear(perform: applyDefaults)
             .onChange(of: draft.accountID) {
                 didSetDefaults = false
@@ -149,33 +166,135 @@ struct ComposeView: View {
         }
     }
 
-    private func addressField(_ label: String, text: Binding<String>, field: Field) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(label + ":")
+    // MARK: Rows
+
+    private var separator: some View {
+        Divider().padding(.leading, 16)
+    }
+
+    private func row<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(label)
                 .foregroundStyle(.secondary)
-            TextField("name@example.org", text: text, axis: .vertical)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.emailAddress)
-                .focused($focus, equals: field)
+                .fixedSize()
+            content()
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
+    }
+
+    private func addressField(_ text: Binding<String>, field: Field, id: String) -> some View {
+        TextField("", text: text, axis: .vertical)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .keyboardType(.emailAddress)
+            .textContentType(.emailAddress)
+            .focused($focus, equals: field)
+            .accessibilityIdentifier(id)
     }
 
     @ViewBuilder
-    private var securityFooter: some View {
+    private var fromPicker: some View {
+        if accounts.accounts.count > 1 {
+            Menu {
+                Picker("Von", selection: $draft.accountID) {
+                    ForEach(accounts.accounts) { Text($0.email).tag($0.id) }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(account?.email ?? "")
+                    Image(systemName: "chevron.up.chevron.down").font(.caption)
+                }
+            }
+        } else {
+            Text(account?.email ?? "")
+                .foregroundStyle(.secondary)
+        }
+        Spacer(minLength: 0)
+    }
+
+    private var securityRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if personalKey != nil {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ChipToggle(title: "Signieren", systemImage: "checkmark.seal", isOn: $sign)
+                            .accessibilityIdentifier("compose.sign")
+                        ChipToggle(title: "Verschlüsseln", systemImage: encrypt ? "lock.fill" : "lock.open",
+                                   isOn: $encrypt, tint: .green)
+                            .accessibilityIdentifier("compose.encrypt")
+                        if encrypt {
+                            ChipToggle(title: "Betreff verschlüsseln", systemImage: "text.badge.checkmark",
+                                       isOn: $protectSubject, tint: .green)
+                                .accessibilityIdentifier("compose.protectSubject")
+                        }
+                        ChipToggle(title: "Schlüssel anhängen", systemImage: "key", isOn: $attachOwnKey)
+                            .accessibilityIdentifier("compose.attachKey")
+                    }
+                    .padding(.horizontal, 16)
+                }
+            }
+            if let note = securityNote {
+                Text(note.text)
+                    .font(.caption)
+                    .foregroundStyle(note.isWarning ? Color.orange : Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+            }
+        }
+        .padding(.vertical, 10)
+    }
+
+    private var securityNote: (text: String, isWarning: Bool)? {
         if personalKey == nil {
-            Text("Für dieses Konto ist noch kein eigener Schlüssel vorhanden. Lege ihn unter Einstellungen › Schlüsselverwaltung an.")
-        } else if encrypt, !missingKeys.isEmpty {
-            Text("Kein öffentlicher Schlüssel für: \(missingKeys.map(\.email).joined(separator: ", ")). Ohne Schlüssel aller Empfänger kann nicht verschlüsselt werden.")
-                .foregroundStyle(.red)
-        } else if encrypt {
-            Text(protectSubject
-                 ? "Text, Anhänge und Betreff werden Ende-zu-Ende verschlüsselt. Auf dem Server steht als Betreff nur „...“; Absender und Empfänger bleiben sichtbar."
-                 : "Text und Anhänge werden Ende-zu-Ende verschlüsselt. Betreff, Absender und Empfänger bleiben sichtbar.")
-        } else if !recipients.isEmpty, missingKeys.isEmpty {
-            Text("Für alle Empfänger sind Schlüssel vorhanden – Verschlüsselung ist möglich.")
+            return ("OpenPGP ist aus: Für dieses Konto gibt es noch keinen eigenen Schlüssel (Einstellungen › Schlüsselverwaltung).", false)
+        }
+        if encrypt, !missingKeys.isEmpty {
+            return ("Kein öffentlicher Schlüssel für \(missingKeys.map(\.email).joined(separator: ", ")). So kann nicht verschlüsselt gesendet werden.", true)
+        }
+        if encrypt {
+            return (protectSubject
+                    ? "Text, Anhänge und Betreff werden Ende-zu-Ende verschlüsselt. Absender und Empfänger bleiben sichtbar."
+                    : "Text und Anhänge werden Ende-zu-Ende verschlüsselt. Betreff, Absender und Empfänger bleiben sichtbar.", false)
+        }
+        if !recipients.isEmpty, missingKeys.isEmpty {
+            return ("Für alle Empfänger sind Schlüssel vorhanden – du kannst verschlüsseln.", false)
+        }
+        return nil
+    }
+
+    private var attachmentStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(draft.attachments) { attachment in
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.fill").foregroundStyle(.tint)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(attachment.filename).font(.footnote.weight(.medium)).lineLimit(1)
+                            Text(ByteCountFormatter.string(fromByteCount: Int64(attachment.data.count), countStyle: .file))
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Button {
+                            draft.attachments.removeAll { $0.id == attachment.id }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(attachment.filename) entfernen")
+                    }
+                    .frame(maxWidth: 220, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
     }
+
+    // MARK: Behaviour
 
     private func applyDefaults() {
         guard !didSetDefaults, let account else { return }
@@ -184,7 +303,7 @@ struct ComposeView: View {
         sign = hasKey && (account.signByDefault || draft.preferEncryption)
         encrypt = hasKey && (account.encryptByDefault || draft.preferEncryption)
         showCopies = showCopies || !draft.cc.isEmpty || !draft.bcc.isEmpty
-        if draft.to.isEmpty { focus = .to }
+        focus = draft.to.isEmpty ? .to : .body
     }
 
     private func attach(_ result: Result<[URL], Error>) {

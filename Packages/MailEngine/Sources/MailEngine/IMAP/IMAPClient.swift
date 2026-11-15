@@ -278,7 +278,7 @@ public actor IMAPClient {
     // MARK: Messages
 
     private static let headerItems =
-        "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER.FIELDS (FROM TO CC REPLY-TO SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES CONTENT-TYPE)])"
+        "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER.FIELDS (FROM TO CC REPLY-TO SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES CONTENT-TYPE CONTENT-TRANSFER-ENCODING)])"
 
     /// Headers for a range of sequence numbers (1-based, inclusive) in the selected folder.
     public func fetchHeaders(sequence range: ClosedRange<Int>) async throws -> [MessageHeader] {
@@ -301,7 +301,7 @@ public actor IMAPClient {
             header.flags = Set(items["FLAGS"]?.items.compactMap(\.text) ?? [])
             header.size = items["RFC822.SIZE"]?.number ?? 0
             header.internalDate = HeaderCodec.parseInternalDate(items["INTERNALDATE"]?.text)
-            if let block = items["BODY[]"]?.data {
+            if let block = items["BODY[HEADER]"]?.data {
                 var fields: [String: String] = [:]
                 for field in HeaderCodec.parseHeaderBlock(block) where fields[field.name.lowercased()] == nil {
                     fields[field.name.lowercased()] = field.value
@@ -316,10 +316,25 @@ public actor IMAPClient {
                 header.inReplyTo = fields["in-reply-to"]
                 header.references = fields["references"]
                 if let contentType = fields["content-type"] {
-                    header.contentType = HeaderCodec.parseParameters(contentType).value
+                    let parsed = HeaderCodec.parseParameters(contentType)
+                    header.contentType = parsed.value
+                    header.contentTypeParams = parsed.params
                 }
+                header.transferEncoding = fields["content-transfer-encoding"]
             }
             result.append(header)
+        }
+        return result
+    }
+
+    /// The first bytes of each message body (for list previews), without setting \Seen.
+    public func fetchPreviews(uids: [UInt32], bytes: Int = 2048) async throws -> [UInt32: Data] {
+        guard !uids.isEmpty else { return [:] }
+        let set = uids.map(String.init).joined(separator: ",")
+        var result: [UInt32: Data] = [:]
+        for case .fetch(_, let items) in try await run([.text("UID FETCH \(set) (UID BODY.PEEK[TEXT]<0.\(bytes)>)")]) {
+            guard let uid = items["UID"]?.number.flatMap({ UInt32(exactly: $0) }) else { continue }
+            result[uid] = items["BODY[TEXT]"]?.data ?? Data()
         }
         return result
     }

@@ -13,6 +13,7 @@ struct MessageListView: View {
     @State private var searchResults: [MessageHeader]?
     @State private var searchError: String?
     @State private var isSearching = false
+    @State private var unreadOnly = false
 
     private var state: MailboxState { mail.mailbox(folder) }
     private var isOutgoing: Bool {
@@ -20,18 +21,26 @@ struct MessageListView: View {
         return role == .sent || role == .drafts
     }
 
+    private var shown: [MessageHeader] {
+        let all = searchResults ?? state.headers
+        return unreadOnly ? all.filter { !$0.isSeen } : all
+    }
+
     var body: some View {
         let state = state
-        let shown = searchResults ?? state.headers
         List(selection: $selection) {
             if let error = searchError ?? state.error {
-                Label(error, systemImage: "exclamationmark.triangle")
-                    .font(.footnote)
-                    .foregroundStyle(.red)
+                ErrorNotice(message: error)
+                    .listRowSeparator(.hidden)
             }
             ForEach(shown) { header in
-                MessageRow(header: header, subject: mail.subject(folder, header: header), showRecipient: isOutgoing)
+                MessageRow(header: header,
+                           subject: mail.subject(folder, header: header),
+                           preview: mail.preview(folder, header: header),
+                           showRecipient: isOutgoing)
                     .tag(header.uid)
+                    .listRowInsets(EdgeInsets(top: 10, leading: 6, bottom: 10, trailing: 16))
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 26 }
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
                             Task { await remove(header) }
@@ -41,7 +50,8 @@ struct MessageListView: View {
                         Button {
                             Task { await mail.setFlagged(folder, header: header, flagged: !header.isFlagged) }
                         } label: {
-                            Label("Markieren", systemImage: header.isFlagged ? "star.slash" : "star")
+                            Label(header.isFlagged ? "Markierung entfernen" : "Markieren",
+                                  systemImage: header.isFlagged ? "flag.slash" : "flag")
                         }
                         .tint(.orange)
                     }
@@ -54,18 +64,39 @@ struct MessageListView: View {
                         }
                         .tint(.blue)
                     }
+                    .contextMenu {
+                        Button {
+                            Task { await mail.setSeen(folder, header: header, seen: !header.isSeen) }
+                        } label: {
+                            Label(header.isSeen ? "Als ungelesen markieren" : "Als gelesen markieren",
+                                  systemImage: header.isSeen ? "envelope.badge" : "envelope.open")
+                        }
+                        Button {
+                            Task { await mail.setFlagged(folder, header: header, flagged: !header.isFlagged) }
+                        } label: {
+                            Label(header.isFlagged ? "Markierung entfernen" : "Markieren", systemImage: "flag")
+                        }
+                        Divider()
+                        Button(role: .destructive) {
+                            Task { await remove(header) }
+                        } label: {
+                            Label("Löschen", systemImage: "trash")
+                        }
+                    }
             }
-            if searchResults == nil, state.canLoadMore {
+            if searchResults == nil, !unreadOnly, state.canLoadMore {
                 Button {
                     Task { await mail.loadMore(folder) }
                 } label: {
                     HStack {
                         Spacer()
-                        if state.isLoading { ProgressView() } else { Text("Ältere Nachrichten laden") }
+                        if state.isLoading { ProgressView() } else { Text("Ältere E-Mails laden") }
                         Spacer()
                     }
+                    .padding(.vertical, 6)
                 }
                 .disabled(state.isLoading)
+                .listRowSeparator(.hidden)
             }
         }
         .listStyle(.plain)
@@ -74,13 +105,15 @@ struct MessageListView: View {
                 ProgressView()
             } else if shown.isEmpty, searchResults != nil {
                 ContentUnavailableView.search(text: query)
+            } else if shown.isEmpty, unreadOnly {
+                ContentUnavailableView("Keine ungelesenen E-Mails", systemImage: "envelope.open")
             } else if shown.isEmpty, state.hasLoaded {
-                ContentUnavailableView("Keine Nachrichten", systemImage: "tray")
+                ContentUnavailableView("Keine E-Mails", systemImage: "tray")
             }
         }
         .navigationTitle(mail.folder(folder).map(FolderRow.title) ?? "Posteingang")
-        .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $query, prompt: "Auf dem Server suchen")
+        .navigationBarTitleDisplayMode(.large)
+        .searchable(text: $query, prompt: "Suchen")
         .onSubmit(of: .search) { Task { await search() } }
         .onChange(of: query) {
             if query.isEmpty {
@@ -101,7 +134,19 @@ struct MessageListView: View {
             if scenePhase == .active { Task { await mail.refresh(folder) } }
         }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .bottomBar) {
+                Button {
+                    withAnimation { unreadOnly.toggle() }
+                } label: {
+                    Label("Nach Ungelesen filtern",
+                          systemImage: unreadOnly ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                }
+            }
+            ToolbarItem(placement: .status) {
+                UpdateStatusText(lastUpdated: state.lastUpdated, isLoading: state.isLoading && state.hasLoaded,
+                                 detail: statusDetail)
+            }
+            ToolbarItem(placement: .bottomBar) {
                 Button {
                     if let account = accounts.account(folder.accountID) { compose(.new(account: account)) }
                 } label: {
@@ -109,6 +154,12 @@ struct MessageListView: View {
                 }
             }
         }
+    }
+
+    private var statusDetail: String? {
+        if unreadOnly { return "Gefiltert: Ungelesen" }
+        let unread = state.headers.filter { !$0.isSeen }.count
+        return unread > 0 ? "\(unread) ungelesen" : nil
     }
 
     private func remove(_ header: MessageHeader) async {
@@ -134,67 +185,105 @@ struct MessageListView: View {
 struct MessageRow: View {
     let header: MessageHeader
     var subject: String
+    var preview: String?
     var showRecipient = false
 
     private var people: String {
         let list = showRecipient ? header.to : header.from
         let names = list.map(\.displayName).joined(separator: ", ")
-        if names.isEmpty { return showRecipient ? "(kein Empfänger)" : "(unbekannter Absender)" }
+        if names.isEmpty { return showRecipient ? "Kein Empfänger" : "Unbekannter Absender" }
         return showRecipient ? "An: \(names)" : names
+    }
+
+    /// Encrypted mail with a protected subject only carries "..." until it is opened once.
+    private var subjectIsHidden: Bool { header.isEncrypted && (subject == "..." || subject == "…") }
+
+    private var subjectText: String {
+        if subjectIsHidden { return "Betreff verschlüsselt" }
+        return subject.isEmpty ? "Kein Betreff" : subject
     }
 
     static func shortDate(_ date: Date) -> String {
         let calendar = Calendar.current
         if calendar.isDateInToday(date) { return date.formatted(date: .omitted, time: .shortened) }
         if calendar.isDateInYesterday(date) { return "Gestern" }
-        if calendar.isDate(date, equalTo: Date(), toGranularity: .year) {
-            return date.formatted(.dateTime.day().month(.abbreviated))
+        if let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: .now)).day,
+           days < 7 {
+            return date.formatted(.dateTime.weekday(.wide))
         }
-        return date.formatted(date: .numeric, time: .omitted)
+        return date.formatted(.dateTime.day(.twoDigits).month(.twoDigits).year(.twoDigits))
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Circle()
-                .fill(header.isSeen ? Color.clear : Color.accentColor)
-                .frame(width: 9, height: 9)
-                .padding(.top, 6)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack {
+        HStack(alignment: .top, spacing: 0) {
+            // Unread dot and flag, in their own column left of the text.
+            VStack(spacing: 6) {
+                Circle()
+                    .fill(header.isSeen ? Color.clear : Color.accentColor)
+                    .frame(width: 10, height: 10)
+                if header.isFlagged {
+                    Image(systemName: "flag.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                }
+            }
+            .frame(width: 20)
+            .padding(.top, 5)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(people)
                         .font(.headline)
-                        .fontWeight(header.isSeen ? .regular : .semibold)
                         .lineLimit(1)
-                    Spacer()
+                    if header.isAnswered {
+                        Image(systemName: "arrowshape.turn.up.left.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
                     Text(Self.shortDate(header.sortDate))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .layoutPriority(1)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
                 }
-                HStack(spacing: 5) {
-                    Text(subject.isEmpty ? "(kein Betreff)" : subject)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(subjectText)
                         .font(.subheadline)
-                        .lineLimit(2)
-                        .foregroundStyle(header.isSeen ? .secondary : .primary)
-                    Spacer(minLength: 0)
-                    if header.isEncrypted {
-                        Image(systemName: "lock.fill").foregroundStyle(.green)
+                        .foregroundStyle(subjectIsHidden ? Color.secondary : Color.primary)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Group {
+                        if header.mayHaveAttachments { Image(systemName: "paperclip") }
+                        if header.isSigned { Image(systemName: "checkmark.seal") }
                     }
-                    if header.isSigned {
-                        Image(systemName: "checkmark.seal").foregroundStyle(.secondary)
-                    }
-                    if header.mayHaveAttachments {
-                        Image(systemName: "paperclip").foregroundStyle(.secondary)
-                    }
-                    if header.isAnswered {
-                        Image(systemName: "arrowshape.turn.up.left").foregroundStyle(.secondary)
-                    }
-                    if header.isFlagged {
-                        Image(systemName: "star.fill").foregroundStyle(.orange)
-                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
-                .font(.caption)
+                if header.isEncrypted {
+                    Label(subjectIsHidden ? "Verschlüsselt – zum Lesen öffnen" : "Verschlüsselte E-Mail", systemImage: "lock.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .labelStyle(TightLabelStyle())
+                } else if let preview, !preview.isEmpty {
+                    Text(preview)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
             }
         }
-        .padding(.vertical, 3)
+    }
+}
+
+/// Label with a small gap between icon and text, as in Mail's preview line.
+private struct TightLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 4) {
+            configuration.icon.font(.caption)
+            configuration.title
+        }
     }
 }

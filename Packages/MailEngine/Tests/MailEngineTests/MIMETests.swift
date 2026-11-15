@@ -102,7 +102,7 @@ final class MIMETests: XCTestCase {
         XCTAssertEqual(seq, 12)
         XCTAssertEqual(items["UID"]?.number, 99)
         XCTAssertEqual(items["FLAGS"]?.items.compactMap(\.text), ["\\Seen", "\\Flagged"])
-        XCTAssertEqual(items["BODY[]"]?.text, literal)
+        XCTAssertEqual(items["BODY[HEADER]"]?.text, literal)
         let headers = IMAPClient.headers(from: [IMAPResponse.parse(Data(raw.utf8))])
         XCTAssertEqual(headers.first?.subject, "Hi (there)")
         XCTAssertEqual(headers.first?.from.first?.email, "a@b.c")

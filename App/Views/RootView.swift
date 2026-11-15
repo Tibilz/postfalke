@@ -47,7 +47,7 @@ struct RootView: View {
 
     private var split: some View {
         NavigationSplitView {
-            SidebarView(selection: $selectedFolder, showSettings: $showSettings)
+            SidebarView(selection: $selectedFolder, showSettings: $showSettings, compose: composeNew)
         } content: {
             if let key = selectedFolder {
                 MessageListView(folder: key, selection: $selectedMessage, compose: { draft = $0 })
@@ -56,10 +56,10 @@ struct RootView: View {
                 ContentUnavailableView("Kein Ordner ausgewählt", systemImage: "folder")
             }
         } detail: {
-            if let key = selectedFolder, let uid = selectedMessage,
-               let header = mail.mailbox(key).headers.first(where: { $0.uid == uid }) {
+            if let key = selectedFolder, let uid = selectedMessage, let header = mail.header(key, uid: uid) {
                 MessageDetailView(folder: key, header: header,
                                   compose: { draft = $0 },
+                                  navigate: { selectedMessage = $0 },
                                   close: { selectedMessage = nil })
                     .id("\(key.path)-\(uid)")
             } else {
@@ -67,6 +67,11 @@ struct RootView: View {
             }
         }
         .onChange(of: selectedFolder) { selectedMessage = nil }
+    }
+
+    private func composeNew() {
+        let account = selectedFolder.flatMap { accounts.account($0.accountID) } ?? accounts.accounts.first
+        if let account { draft = .new(account: account) }
     }
 
     private func selectDefaultFolder() {

@@ -91,9 +91,13 @@ class IMAP(TLSMixin, socketserver.StreamRequestHandler):
                         key = m["uid"] if cmd.startswith("UID") else n
                         if a <= key <= b: chosen.append((n, m))
                 full = b"BODY.PEEK[]" in line
+                partial = re.search(rb"BODY\.PEEK\[TEXT\]<0\.(\d+)>", line)
                 for n, m in chosen:
                     fl = " ".join(sorted(m["flags"]))
-                    if full:
+                    if partial:
+                        text = m["data"].split(b"\r\n\r\n", 1)[-1][:int(partial.group(1))]
+                        self.send(f"* {n} FETCH (UID {m['uid']} BODY[TEXT]<0> {{{len(text)}}}\r\n".encode() + text + b")\r\n")
+                    elif full:
                         self.send(f"* {n} FETCH (UID {m['uid']} BODY[] {{{len(m['data'])}}}\r\n".encode() + m["data"] + b")\r\n")
                     else:
                         hdr = m["data"].split(b"\r\n\r\n")[0] + b"\r\n\r\n"

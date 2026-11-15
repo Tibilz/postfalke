@@ -148,7 +148,8 @@ struct IMAPTokenizer {
 public enum IMAPResponse: Sendable {
     /// `* 12 EXISTS`, `* 3 EXPUNGE`, …
     case count(kind: String, number: Int)
-    /// `* 12 FETCH (…)` with upper-cased keys (`BODY[…]` collapsed to `BODY[]`).
+    /// `* 12 FETCH (…)` with upper-cased keys. Body sections are normalised to
+    /// `BODY[HEADER]` (any header fetch), `BODY[TEXT]` (text, also partial) and `BODY[]`.
     case fetch(seq: Int, items: [String: IMAPValue])
     case list(flags: [String], delimiter: String?, path: String)
     case status(path: String, items: [String: Int])
@@ -172,7 +173,9 @@ public enum IMAPResponse: Sendable {
                 var i = 0
                 while i + 1 < values.count {
                     var key = (values[i].text ?? "").uppercased()
-                    if key.hasPrefix("BODY[") { key = "BODY[]" }
+                    if key.hasPrefix("BODY[HEADER") { key = "BODY[HEADER]" }
+                    else if key.hasPrefix("BODY[TEXT]") { key = "BODY[TEXT]" }
+                    else if key.hasPrefix("BODY[") { key = "BODY[]" }
                     items[key] = values[i + 1]
                     i += 2
                 }

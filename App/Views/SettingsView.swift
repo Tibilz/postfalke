@@ -258,7 +258,7 @@ struct CardDAVSettingsView: View {
                 }
                 .disabled(!canSync || contacts.isSyncing)
                 if let error = contacts.lastError {
-                    Label(error, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.red)
+                    ErrorNotice(message: error)
                 } else if let result = contacts.lastResult {
                     Text(result).font(.footnote).foregroundStyle(.secondary)
                 }
@@ -485,7 +485,7 @@ struct KeyGenerateView: View {
                     Text("Erzeugt wird ein Ed25519-Schlüssel mit Curve25519-Unterschlüssel zum Verschlüsseln. Die Passphrase schützt die Sicherungsdatei des privaten Schlüssels.")
                 }
                 if let error {
-                    Section { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+                    Section { ErrorNotice(message: error) }
                 }
             }
             .navigationTitle("Neues Schlüsselpaar")

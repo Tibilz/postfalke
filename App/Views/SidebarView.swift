@@ -1,20 +1,22 @@
 import SwiftUI
 import MailEngine
 
+/// "Postfächer": every account with its folders.
 struct SidebarView: View {
     @Environment(AccountStore.self) private var accounts
     @Environment(MailStore.self) private var mail
     @Binding var selection: FolderKey?
     @Binding var showSettings: Bool
+    var compose: () -> Void
 
     var body: some View {
         List(selection: $selection) {
             ForEach(accounts.accounts) { account in
-                Section(account.email) {
+                Section {
                     let folders = mail.folders[account.id] ?? []
                     if folders.isEmpty {
                         // Until the folder list has loaded the inbox is always reachable.
-                        Label("Posteingang", systemImage: "tray")
+                        FolderRow(title: "Posteingang", icon: "tray", unread: nil)
                             .tag(FolderKey(accountID: account.id, path: "INBOX"))
                     }
                     ForEach(folders) { folder in
@@ -22,18 +24,23 @@ struct SidebarView: View {
                             FolderRow(folder: folder)
                                 .tag(FolderKey(accountID: account.id, path: folder.path))
                         } else {
-                            FolderRow(folder: folder).foregroundStyle(.secondary)
+                            FolderRow(folder: folder)
+                                .foregroundStyle(.secondary)
+                                .selectionDisabled()
                         }
                     }
                     if let error = mail.folderErrors[account.id] {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .font(.footnote)
-                            .foregroundStyle(.red)
+                        ErrorNotice(message: error)
                     }
+                } header: {
+                    Text(account.email)
+                        .textCase(nil)
                 }
             }
         }
-        .navigationTitle("Postfalke")
+        .listStyle(.insetGrouped)
+        .headerProminence(.increased)
+        .navigationTitle("Postfächer")
         .refreshable {
             for account in accounts.accounts { await mail.loadFolders(account.id) }
         }
@@ -43,12 +50,43 @@ struct SidebarView: View {
                     Label("Einstellungen", systemImage: "gearshape")
                 }
             }
+            ToolbarItem(placement: .bottomBar) {
+                Spacer()
+            }
+            ToolbarItem(placement: .status) {
+                UpdateStatusText(lastUpdated: inboxUpdated, isLoading: false)
+            }
+            ToolbarItem(placement: .bottomBar) {
+                Button(action: compose) {
+                    Label("Verfassen", systemImage: "square.and.pencil")
+                }
+            }
         }
+    }
+
+    /// Most recent refresh of any inbox.
+    private var inboxUpdated: Date? {
+        accounts.accounts.compactMap { mail.mailbox(FolderKey(accountID: $0.id, path: "INBOX")).lastUpdated }.max()
     }
 }
 
 struct FolderRow: View {
-    let folder: MailFolder
+    let title: String
+    let icon: String
+    let unread: Int?
+    var depth = 0
+
+    init(title: String, icon: String, unread: Int?, depth: Int = 0) {
+        self.title = title
+        self.icon = icon
+        self.unread = unread
+        self.depth = depth
+    }
+
+    init(folder: MailFolder) {
+        self.init(title: Self.title(folder), icon: Self.icon(folder), unread: folder.unread,
+                  depth: folder.role == nil ? folder.depth : 0)
+    }
 
     static func title(_ folder: MailFolder) -> String {
         switch folder.role {
@@ -56,7 +94,7 @@ struct FolderRow: View {
         case .drafts: return "Entwürfe"
         case .sent: return "Gesendet"
         case .archive: return "Archiv"
-        case .junk: return "Spam"
+        case .junk: return "Werbung"
         case .trash: return "Papierkorb"
         case nil: return folder.shortName
         }
@@ -75,15 +113,20 @@ struct FolderRow: View {
     }
 
     var body: some View {
-        HStack {
-            Label(Self.title(folder), systemImage: Self.icon(folder))
-                .padding(.leading, folder.role == nil ? CGFloat(folder.depth) * 14 : 0)
-            Spacer()
-            if let unread = folder.unread, unread > 0 {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.body)
+                .foregroundStyle(.tint)
+                .frame(width: 26)
+            Text(title)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            if let unread, unread > 0 {
                 Text("\(unread)")
-                    .font(.subheadline.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
         }
+        .padding(.leading, CGFloat(depth) * 18)
+        .padding(.vertical, 2)
     }
 }
